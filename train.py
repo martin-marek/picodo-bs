@@ -4,6 +4,7 @@ import optax
 import wandb
 import data, utils
 import model as model_lib
+import optimizer as optimizer_lib
 from functools import partial
 from flax import nnx
 from tqdm.auto import tqdm
@@ -48,17 +49,18 @@ def train_and_evaluate(c: DictConfig):
     # get number of training/validation steps
     c.num_tokens_train = c.num_tokens_train or ds_train_size
     c.num_tokens_valid = c.num_tokens_valid or ds_valid_size
-    tokens_per_train_step = c.batch_size_train * c.model.L
-    tokens_per_valid_step = c.batch_size_valid * c.model.L
-    num_train_steps = c.num_tokens_train // tokens_per_train_step
-    num_valid_steps = c.num_tokens_valid // tokens_per_valid_step
+    tokens_per_microbatch = c.opt.microbatch_size * c.model.L
+    tokens_per_eval_step = c.batch_size_valid * c.model.L
+    num_microbatch_steps = c.num_tokens_train // tokens_per_microbatch
+    num_eval_steps = c.num_tokens_valid // tokens_per_eval_step
+    eval_every_steps = max(1, c.eval_every_tokens // tokens_per_microbatch)
 
     # sharding
     # all devices are aligned across a single mesh axis called 'data'
     # we use FSDP to shard data, model, and optimzier parameters across this axis
     mesh = Mesh(mesh_utils.create_device_mesh((jax.device_count(),)), ('data',))
     data_sharding = NamedSharding(mesh, P('data')) # data parallelism
-    with mesh: ds_valid = jnp.stack([jax.device_put(get_batch_valid(i), data_sharding) for i in range(num_valid_steps)])
+    with mesh: ds_valid = jnp.stack([jax.device_put(get_batch_valid(i), data_sharding) for i in range(num_eval_steps)])
 
     # model
     model = model_lib.create_sharded_model(c.model, mesh, c.seed)
@@ -66,9 +68,7 @@ def train_and_evaluate(c: DictConfig):
     print(f'{n_param=:_}')
 
     # optimizer
-    warmup_steps = int(c.opt.warmup_frac * num_train_steps)
-    lr_schedule = optax.schedules.warmup_cosine_decay_schedule(0, c.opt.peak_lr, warmup_steps, num_train_steps)
-    tx = optax.inject_hyperparams(optax.adamw)(lr_schedule, c.opt.b1, c.opt.b2, weight_decay=c.opt.weight_decay)
+    tx = optimizer_lib.get_optimizer(c.opt, num_microbatch_steps, tokens_per_microbatch)
     optimizer = nnx.Optimizer(model, tx)
 
     # start wandb
@@ -83,13 +83,13 @@ def train_and_evaluate(c: DictConfig):
     model_graphdef = nnx.graphdef(model)
     opt_graphdef, opt_state = nnx.split(optimizer)
     with mesh:
-        pbar = tqdm(range(num_train_steps))
+        pbar = tqdm(range(num_microbatch_steps))
         for step in pbar:
 
             # training step
             batch = jax.device_put(get_batch_train(step), data_sharding)
             opt_state, train_metrics = train_step(opt_graphdef, opt_state, batch)
-            train_metrics |= {'train_tokens_seen': (step+1)*tokens_per_train_step}
+            train_metrics |= {'train_tokens_seen': (step+1)*tokens_per_microbatch}
 
             # async logging
             if pending_train_metrics is not None:
@@ -101,7 +101,7 @@ def train_and_evaluate(c: DictConfig):
                 pending_eval_metrics = None
 
             # eval step
-            if ((step+1) % c.eval_every_steps == 0) or ((step+1) == num_train_steps):
+            if ((step+1) % eval_every_steps == 0) or ((step+1) == num_microbatch_steps):
                 pending_eval_metrics = eval_step(model_graphdef, opt_state.model, ds_valid)
 
         wandb.log(pending_train_metrics, step)

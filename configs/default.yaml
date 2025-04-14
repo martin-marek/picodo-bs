@@ -4,13 +4,12 @@ defaults:
   - override hydra/job_logging: disabled
 
 seed: 0
-batch_size_train: 32
-batch_size_valid: 128
-num_tokens_train: null
-num_tokens_valid: null
-eval_every_steps: 100
 ds_path_train: null
 ds_path_valid: null
+num_tokens_train: null
+num_tokens_valid: null
+valid_batch_size: 128
+eval_every_tokens: 20_000_000
 wandb_project: 'picodo'
 wandb_mode: 'online'
 
@@ -26,8 +25,13 @@ model: # GPT2-small (124M params)
   dtype: null
 
 opt:
+  optimizer: 'sgd'
+  microbatch_size: 32
+  grad_acc_steps: 1
+  batch_size: ${eval:'${opt.grad_acc_steps} * ${opt.microbatch_size}'}
   peak_lr: 0.004
   warmup_frac: 0.05
   b1: 0.9
-  b2: 0.98
-  weight_decay: 0.1
+  b2: null
+  t2: null
+  weight_decay: 0
