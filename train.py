@@ -43,7 +43,7 @@ def eval_step(model_graphdef, model_state, dataset):
 def train_and_evaluate(c: DictConfig):
 
     # datastes
-    get_batch_train, ds_train_size = data.make_ds_loader(c.ds_path_train, c.model.L, c.microbatch_size)
+    get_batch_train, ds_train_size = data.make_ds_loader(c.ds_path_train, c.model.L, c.opt.microbatch_size)
     get_batch_valid, ds_valid_size = data.make_ds_loader(c.ds_path_valid, c.model.L, c.batch_size_valid)
 
     # get number of training/validation steps
