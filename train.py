@@ -42,30 +42,31 @@ def eval_step(model_graphdef, model_state, dataset):
 
 def train_and_evaluate(c: DictConfig):
 
-    # datastes
-    get_batch_train, ds_train_size = data.make_ds_loader(c.ds_path_train, c.model.L, c.opt.microbatch_size)
-    get_batch_valid, ds_valid_size = data.make_ds_loader(c.ds_path_valid, c.model.L, c.batch_size_valid)
-
-    # get number of training/validation steps
-    c.num_tokens_train = c.num_tokens_train or ds_train_size
-    c.num_tokens_valid = c.num_tokens_valid or ds_valid_size
-    tokens_per_microbatch = c.opt.microbatch_size * c.model.L
-    tokens_per_eval_step = c.batch_size_valid * c.model.L
-    num_microbatch_steps = c.num_tokens_train // tokens_per_microbatch
-    num_eval_steps = c.num_tokens_valid // tokens_per_eval_step
-    eval_every_steps = max(1, c.eval_every_tokens // tokens_per_microbatch)
-
     # sharding
     # all devices are aligned across a single mesh axis called 'data'
     # we use FSDP to shard data, model, and optimzier parameters across this axis
     mesh = Mesh(mesh_utils.create_device_mesh((jax.device_count(),)), ('data',))
     data_sharding = NamedSharding(mesh, P('data')) # data parallelism
-    with mesh: ds_valid = jnp.stack([jax.device_put(get_batch_valid(i), data_sharding) for i in range(num_eval_steps)])
 
     # model
     model = model_lib.create_sharded_model(c.model, mesh, c.seed)
     n_param = utils.get_num_model_params(model)
     print(f'{n_param=:_}')
+
+    # datastes
+    get_batch_train, ds_train_size = data.make_ds_loader(c.ds_path_train, c.model.L, c.opt.microbatch_size)
+    get_batch_valid, ds_valid_size = data.make_ds_loader(c.ds_path_valid, c.model.L, c.batch_size_valid)
+
+    # get number of training/validation steps
+    if c.num_tokens_train is None:
+        c.num_tokens_train = ds_train_size if c.tokens_params_ratio is None else n_param * c.tokens_params_ratio
+    c.num_tokens_valid = c.num_tokens_valid or ds_valid_size
+    tokens_per_microbatch = c.opt.microbatch_size * c.model.L
+    tokens_per_eval_step = c.batch_size_valid * c.model.L
+    num_microbatch_steps = c.num_tokens_train // tokens_per_microbatch
+    num_eval_steps = c.num_tokens_valid // tokens_per_eval_step
+    eval_every_steps = num_microbatch_steps // c.num_eval_steps
+    with mesh: ds_valid = jnp.stack([jax.device_put(get_batch_valid(i), data_sharding) for i in range(num_eval_steps)])
 
     # optimizer
     tx = optimizer_lib.get_optimizer(c.opt, num_microbatch_steps, tokens_per_microbatch)
@@ -73,7 +74,7 @@ def train_and_evaluate(c: DictConfig):
 
     # start wandb
     if c.wandb_project is not None:
-        wandb.init(project=c.wandb_project, config=utils.flatten_dict(c), mode=c.wandb_mode)
+        wandb.init(project=c.wandb_project, config=utils.flatten_dict(c), mode=c.wandb_mode, name=c.run_name)
         wandb.summary.update(dict(n_param=n_param))
 
     # training loop
