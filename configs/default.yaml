@@ -13,7 +13,7 @@ batch_size_valid: 128
 num_eval_steps: 100
 wandb_project: 'picodo'
 wandb_mode: 'online'
-run_name: 'test run'
+run_name: null
 
 model: # GPT2-small (124M params)
   k: 6 # model size, 6 -> 124M param
