@@ -15,13 +15,13 @@ wandb_project: 'picodo-bs'
 wandb_mode: 'online'
 run_name: null
 
-model: # GPT2-small (124M params)
-  k: 6 # model size, 6 -> 124M param
-  D: ${eval:'128 * ${model.k}'} # model/embed dim  = qkv dim
-  F: ${eval:'512 * ${model.k}'} # FF inner dimension
-  H: ${eval:'2 * ${model.k}'} # num attention heads
-  L: 1024 # max context/sequence length
-  N: 12 # number of transformer block layers
+model:
+  k: 2 # model size scaling factor, 6 ≈ 124M param
+  D: ${eval:'128 * ${model.k}'} # model/embed/qkv dim
+  F: ${eval:'4 * ${model.D}'} # FF inner dimension = 4 x embed dim.
+  H: ${eval:'2 * ${model.k}'} # num. attention heads, each with dim. D/H = 64
+  L: 512 # context/sequence length
+  N: 12 # num. block layers
   V: 50257 # vocab size -> must match dataset tokenizer!
   fsdp_enabled: true
   dtype: null
