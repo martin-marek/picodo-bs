@@ -3,6 +3,7 @@ import jax.numpy as jnp
 from flax import nnx
 from jax.sharding import Mesh
 from omegaconf.dictconfig import DictConfig
+from rope import apply_rope
 
 
 class TransformerDecoder(nnx.Module):
@@ -44,9 +45,12 @@ class MultiHeadAttention(nnx.Module):
   def __init__(self, c: DictConfig, rngs: nnx.Rngs):
     qkv_proj_init = fsdp_init('attn_qkv_proj', c.fsdp_enabled)
     out_proj_init = fsdp_init('attn_out_proj', c.fsdp_enabled)
+    self.head_dim = c.D // c.H
     self.qkv_proj = nnx.LinearGeneral(axis=(-1), in_features=(c.D), out_features=(3, c.H, c.D//c.H), kernel_init=qkv_proj_init, use_bias=False, dtype=c.dtype, rngs=rngs)
     self.out_proj = nnx.LinearGeneral(axis=(-2, -1), in_features=(c.H, c.D//c.H), out_features=(c.D), kernel_init=out_proj_init, use_bias=False, dtype=c.dtype, rngs=rngs)
-    self.query_scale = (c.D/c.H)**0.5
+    self.query_norm = nnx.RMSNorm(self.head_dim, rngs=rngs)
+    self.key_norm = nnx.RMSNorm(self.head_dim, rngs=rngs)
+    self.query_scaling = (c.D/c.H)**-0.5
     self.dtype = c.dtype
 
   def __call__(self, x): # [B, L, D]
@@ -55,7 +59,16 @@ class MultiHeadAttention(nnx.Module):
     # input projection
     qkv = self.qkv_proj(x) # [B, L, 3, H, D/H]
     q, k, v = jnp.moveaxis(qkv, 2, 0) # [B, L, H, D/H]
-    q /= self.query_scale
+
+    # qk-norm
+    q = self.query_norm(q)
+    k = self.key_norm(k)
+
+    # position embedding
+    position = jnp.arange(L)
+    q = apply_rope(q, position[None], self.head_dim)
+    k = apply_rope(k, position[None], self.head_dim)
+    q *= self.query_scaling
 
     # attention logits
     att = jnp.einsum('...qhd,...khd->...hqk', q, k).astype(jnp.float32) # [B, H, L, L]
