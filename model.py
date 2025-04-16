@@ -30,8 +30,8 @@ class TransformerDecoder(nnx.Module):
 class TransformerBlock(nnx.Module):
     def __init__(self, c: DictConfig, rngs: nnx.Rngs):
         self.ln1 = nnx.LayerNorm(c.D, use_bias=False, dtype=c.dtype, rngs=rngs)
-        self.attn = MultiHeadAttention(c, rngs=rngs)
         self.ln2 = nnx.LayerNorm(c.D, use_bias=False, dtype=c.dtype, rngs=rngs)
+        self.attn = MultiHeadAttention(c, rngs=rngs)
         self.mlp = Mlp(c, rngs)
         
     def __call__(self, x): # [B, L, D]
@@ -45,10 +45,10 @@ class MultiHeadAttention(nnx.Module):
     qkv_proj_init = fsdp_init('attn_qkv_proj', c.fsdp_enabled)
     out_proj_init = fsdp_init('attn_out_proj', c.fsdp_enabled)
     self.head_dim = c.D // c.H
-    self.qkv_proj = nnx.LinearGeneral(axis=(-1), in_features=(c.D), out_features=(3, c.H, c.D//c.H), kernel_init=qkv_proj_init, use_bias=False, dtype=c.dtype, rngs=rngs)
-    self.out_proj = nnx.LinearGeneral(axis=(-2, -1), in_features=(c.H, c.D//c.H), out_features=(c.D), kernel_init=out_proj_init, use_bias=False, dtype=c.dtype, rngs=rngs)
-    self.query_norm = nnx.RMSNorm(self.head_dim, rngs=rngs)
-    self.key_norm = nnx.RMSNorm(self.head_dim, rngs=rngs)
+    self.qkv_proj = nnx.Einsum('bTD,SNDH->SbTNH', (3, c.H, c.D, c.D//c.H), kernel_init=qkv_proj_init, dtype=c.dtype, rngs=rngs)
+    self.out_proj = nnx.Einsum('bTNH,NHD->bTD', (c.H, c.D//c.H, c.D),  kernel_init=out_proj_init, dtype=c.dtype, rngs=rngs)
+    self.query_norm = nnx.RMSNorm(self.head_dim, dtype=c.dtype, rngs=rngs)
+    self.key_norm = nnx.RMSNorm(self.head_dim, dtype=c.dtype, rngs=rngs)
     self.query_scaling = (c.D/c.H)**-0.5
     self.dtype = c.dtype
 
@@ -56,8 +56,7 @@ class MultiHeadAttention(nnx.Module):
     B, L, D = x.shape
 
     # input projection
-    qkv = self.qkv_proj(x) # [B, L, 3, H, D/H]
-    q, k, v = jnp.moveaxis(qkv, 2, 0) # [B, L, H, D/H]
+    q, k, v = self.qkv_proj(x) # [B, L, H, D/H]
 
     # qk-norm
     q = self.query_norm(q)
@@ -70,7 +69,7 @@ class MultiHeadAttention(nnx.Module):
     q *= self.query_scaling
 
     # attention logits
-    att = jnp.einsum('...qhd,...khd->...hqk', q, k).astype(jnp.float32) # [B, H, L, L]
+    att = jnp.einsum('bqhd,bkhd->bhqk', q, k).astype(jnp.float32) # [B, H, L, L]
 
     # causal mask
     mask = jnp.tril(jnp.ones((1, 1, L, L), dtype=jnp.bool_))
@@ -79,7 +78,7 @@ class MultiHeadAttention(nnx.Module):
 
     # attended values
     att = jax.nn.softmax(att, axis=-1).astype(self.dtype)
-    out = jnp.einsum('...hqk,...khd->...qhd', att, v) # [B, L, H, D/H]
+    out = jnp.einsum('bhqk,bkhd->bqhd', att, v) # [B, L, H, D/H]
 
     # output projection followed by contraction back to original dims
     out = self.out_proj(out) # [B, L, D]
@@ -106,10 +105,10 @@ def fsdp_init(layer_type: str, fsdp_enabled: bool):
     match layer_type:
         case 'embedding': # [V, D]
             return partition_fn(embed_init, (None, 'data'))
-        case 'attn_qkv_proj': # [D, 3, H, D/H]
-            return partition_fn(kernel_init, ('data', None, None, None))
+        case 'attn_qkv_proj': # [3, H, D, D/H]
+            return partition_fn(kernel_init, (None, None, 'data', None))
         case 'attn_out_proj': # [H, D/H, D]
-            return partition_fn(kernel_init, (None, None, "data"))
+            return partition_fn(kernel_init, (None, None, 'data'))
         case 'mlp_kernel': # [D, F]
             return partition_fn(kernel_init, ('data', None))
         case _:
