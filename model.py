@@ -9,14 +9,13 @@ from rope import apply_rope
 class TransformerDecoder(nnx.Module):
     def __init__(self, c: DictConfig, rngs: nnx.Rngs):
         embed_init = fsdp_init('embedding', c.fsdp_enabled)
-        self.in_embed = nnx.Embed(num_embeddings=c.V, features=c.D, embedding_init=embed_init, rngs=rngs)
-        self.out_embed = nnx.Embed(num_embeddings=c.V, features=c.D, embedding_init=embed_init, rngs=rngs)
+        self.token_embed = nnx.Embed(num_embeddings=c.V, features=c.D, embedding_init=embed_init, rngs=rngs)
         self.blocks = [TransformerBlock(c, rngs) for _ in range(c.N)]
         self.out_ln = nnx.LayerNorm(c.D, use_bias=False, dtype=c.dtype, rngs=rngs)
         
     def __call__(self, x): # [B, S]
         # token embedding
-        h = self.in_embed(x) # [B, L, D]
+        h = self.token_embed(x) # [B, L, D]
         
         # transformer blocks
         for block in self.blocks:
@@ -24,7 +23,7 @@ class TransformerDecoder(nnx.Module):
             
         # project back to vocabulary
         h = self.out_ln(h)
-        logits = self.out_embed.attend(h.astype(jnp.float32)) # [B, L, V]
+        logits = self.token_embed.attend(h.astype(jnp.float32)) # [B, L, V]
         return logits
 
 
