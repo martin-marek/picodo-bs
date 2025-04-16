@@ -120,7 +120,6 @@ def create_sharded_model(c: DictConfig, mesh: Mesh, seed: int):
     """
     initialize sharded model without putting it on a single device
     https://flax.readthedocs.io/en/latest/guides/flax_gspmd.html
-    TODO: add rng key
     """
 
     @nnx.jit
