@@ -6,56 +6,84 @@ from omegaconf.dictconfig import DictConfig
 
 
 class TransformerDecoder(nnx.Module):
-    def __init__(self, cfg: DictConfig, rngs: nnx.Rngs):
-        self.embed = nnx.Embed(num_embeddings=cfg.V, features=cfg.D, embedding_init=fsdp_init('embedding', cfg.fsdp_enabled), rngs=rngs)
-        self.pos_embed = nnx.Embed(num_embeddings=cfg.L, features=cfg.D, embedding_init=fsdp_init('embedding', cfg.fsdp_enabled), rngs=rngs)
-        self.blocks = [TransformerBlock(cfg, rngs) for _ in range(cfg.N)]
-        self.out_ln = nnx.LayerNorm(cfg.D, use_bias=False, dtype=cfg.dtype, rngs=rngs)
+    def __init__(self, c: DictConfig, rngs: nnx.Rngs):
+        embed_init = fsdp_init('embedding', c.fsdp_enabled)
+        self.in_embed = nnx.Embed(num_embeddings=c.V, features=c.D, embedding_init=embed_init, rngs=rngs)
+        self.out_embed = nnx.Embed(num_embeddings=c.V, features=c.D, embedding_init=embed_init, rngs=rngs)
+        self.blocks = [TransformerBlock(c, rngs) for _ in range(c.N)]
+        self.out_ln = nnx.LayerNorm(c.D, use_bias=False, dtype=c.dtype, rngs=rngs)
         
-    def __call__(self, x):    # [B, S]
-        # Token + positional embedding
-        h = self.embed(x) + self.pos_embed(jnp.arange(x.shape[1])[None, ...])    # [B, S, D]
+    def __call__(self, x): # [B, S]
+        # token embedding
+        h = self.in_embed(x) # [B, L, D]
         
-        # Transformer blocks
+        # transformer blocks
         for block in self.blocks:
             h = block(h)
             
-        # Project back to vocabulary
+        # project back to vocabulary
         h = self.out_ln(h)
-        return self.embed.attend(h.astype(jnp.float32))    # [B, S, V]
+        logits = self.out_embed.attend(h.astype(jnp.float32)) # [B, L, V]
+        return logits
 
 
 class TransformerBlock(nnx.Module):
-    def __init__(self, cfg: DictConfig, rngs: nnx.Rngs):
-        self.ln1 = nnx.LayerNorm(cfg.D, use_bias=False, dtype=cfg.dtype, rngs=rngs)
-        self.attn = nnx.MultiHeadAttention(
-            num_heads=cfg.H, in_features=cfg.D, qkv_features=cfg.D, out_features=cfg.D,
-            kernel_init=fsdp_init('attn_in_proj', cfg.fsdp_enabled), out_kernel_init=fsdp_init('attn_out_proj', cfg.fsdp_enabled),
-            use_bias=False, dtype=cfg.dtype, rngs=rngs, decode=False,
-        )
-        self.ln2 = nnx.LayerNorm(cfg.D, use_bias=False, dtype=cfg.dtype, rngs=rngs)
-        self.mlp = Mlp(cfg, rngs)
+    def __init__(self, c: DictConfig, rngs: nnx.Rngs):
+        self.ln1 = nnx.LayerNorm(c.D, use_bias=False, dtype=c.dtype, rngs=rngs)
+        self.attn = MultiHeadAttention(c, rngs=rngs)
+        self.ln2 = nnx.LayerNorm(c.D, use_bias=False, dtype=c.dtype, rngs=rngs)
+        self.mlp = Mlp(c, rngs)
         
-    def __call__(self, x):    # [B, S, D]
-        # Pre-layernorm attention block
-        h = self.ln1(x)
-        mask = nnx.make_causal_mask(jnp.ones((x.shape[0], x.shape[1])), dtype=x.dtype)
-        x = x + self.attn(h, mask=mask)
-        
-        # Pre-layernorm MLP block
-        return x + self.mlp(self.ln2(x))
+    def __call__(self, x): # [B, L, D]
+        x = x + self.attn(self.ln1(x)) # attention block
+        return x + self.mlp(self.ln2(x)) # MLP block
+
+
+class MultiHeadAttention(nnx.Module):
+  """Causal attention layer."""
+  def __init__(self, c: DictConfig, rngs: nnx.Rngs):
+    qkv_proj_init = fsdp_init('attn_qkv_proj', c.fsdp_enabled)
+    out_proj_init = fsdp_init('attn_out_proj', c.fsdp_enabled)
+    self.qkv_proj = nnx.LinearGeneral(axis=(-1), in_features=(c.D), out_features=(3, c.H, c.D//c.H), kernel_init=qkv_proj_init, use_bias=False, dtype=c.dtype, rngs=rngs)
+    self.out_proj = nnx.LinearGeneral(axis=(-2, -1), in_features=(c.H, c.D//c.H), out_features=(c.D), kernel_init=out_proj_init, use_bias=False, dtype=c.dtype, rngs=rngs)
+    self.query_scale = (c.D/c.H)**0.5
+    self.dtype = c.dtype
+
+  def __call__(self, x): # [B, L, D]
+    B, L, D = x.shape
+
+    # input projection
+    qkv = self.qkv_proj(x) # [B, L, 3, H, D/H]
+    q, k, v = jnp.moveaxis(qkv, 2, 0) # [B, L, H, D/H]
+    q /= self.query_scale
+
+    # attention logits
+    att = jnp.einsum('...qhd,...khd->...hqk', q, k).astype(jnp.float32) # [B, H, L, L]
+
+    # causal mask
+    mask = jnp.tril(jnp.ones((1, 1, L, L), dtype=jnp.bool_))
+    _NEG_INF = jnp.finfo(att.dtype).min
+    att = jnp.where(mask, att, _NEG_INF)
+
+    # attended values
+    att = jax.nn.softmax(att, axis=-1).astype(self.dtype)
+    out = jnp.einsum('...hqk,...khd->...qhd', att, v) # [B, L, H, D/H]
+
+    # output projection followed by contraction back to original dims
+    out = self.out_proj(out) # [B, L, D]
+    return out
 
 
 class Mlp(nnx.Module):
     """Multilayer perceptron."""
-    def __init__(self, cfg: DictConfig, rngs: nnx.Rngs):
-        kernel_init = fsdp_init('mlp_kernel', cfg.fsdp_enabled)
-        self.fc1 = nnx.Linear(in_features=cfg.D, out_features=cfg.F, use_bias=False, kernel_init=kernel_init, dtype=cfg.dtype, rngs=rngs)
-        self.fc2 = nnx.Linear(in_features=cfg.F, out_features=cfg.D, use_bias=False, kernel_init=kernel_init, dtype=cfg.dtype, rngs=rngs)
+    def __init__(self, c: DictConfig, rngs: nnx.Rngs):
+        kernel_init = fsdp_init('mlp_kernel', c.fsdp_enabled)
+        self.fc1 = nnx.Linear(in_features=c.D, out_features=c.F, kernel_init=kernel_init, use_bias=False, dtype=c.dtype, rngs=rngs)
+        self.fc2 = nnx.Linear(in_features=c.F, out_features=c.D, kernel_init=kernel_init, use_bias=False, dtype=c.dtype, rngs=rngs)
         
-    def __call__(self, x):    # [B, S, D]
-        h = jax.nn.gelu(self.fc1(x))    # [B, S, F]
-        return self.fc2(h)    # [B, S, D]
+    def __call__(self, x): # [B, L, D]
+        h = jax.nn.gelu(self.fc1(x)) # [B, L, F]
+        return self.fc2(h) # [B, L, D]
 
 
 def fsdp_init(layer_type: str, fsdp_enabled: bool):
@@ -64,16 +92,16 @@ def fsdp_init(layer_type: str, fsdp_enabled: bool):
     kernel_init = jax.nn.initializers.xavier_uniform()
     embed_init = jax.nn.initializers.variance_scaling(1.0, 'fan_in', 'normal', out_axis=0)
     match layer_type:
-        case "embedding":    # [V, D]
-            return partition_fn(embed_init, (None, "data"))
-        case "attn_in_proj":    # [D, H, D/H]
-            return partition_fn(kernel_init, ("data", None, None))
-        case "attn_out_proj":    # [H, D/H, D]
+        case 'embedding': # [V, D]
+            return partition_fn(embed_init, (None, 'data'))
+        case 'attn_qkv_proj': # [D, 3, H, D/H]
+            return partition_fn(kernel_init, ('data', None, None, None))
+        case 'attn_out_proj': # [H, D/H, D]
             return partition_fn(kernel_init, (None, None, "data"))
-        case "mlp_kernel":    # [D, F]
-            return partition_fn(kernel_init, ("data", None))
+        case 'mlp_kernel': # [D, F]
+            return partition_fn(kernel_init, ('data', None))
         case _:
-            raise ValueError(f"unrecognized layer type: {layer_type}")
+            raise ValueError(f'unrecognized layer type: {layer_type}')
 
 
 def create_sharded_model(c: DictConfig, mesh: Mesh, seed: int):
