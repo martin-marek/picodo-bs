@@ -1,11 +1,7 @@
-import operator as op
 import hydra
 import train
-from omegaconf import OmegaConf, DictConfig
-OmegaConf.register_new_resolver('floordiv', op.floordiv)
-OmegaConf.register_new_resolver('mul', op.mul)
-OmegaConf.register_new_resolver('min', min)
-OmegaConf.register_new_resolver('pow', pow)
+from configs import resolver_setup
+from omegaconf import DictConfig
 
 
 @hydra.main(version_base=None, config_path='configs', config_name='local')
