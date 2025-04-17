@@ -28,10 +28,12 @@ model:
 
 opt:
   optimizer: 'sgd'
-  microbatch_size: 32
-  grad_acc_steps: 1
-  batch_size: ${eval:'${opt.grad_acc_steps} * ${opt.microbatch_size}'}
+  batch_size: 16
+  microbatch_size: 16
+  grad_acc_steps: ${eval:'${opt.batch_size} // ${opt.microbatch_size}'}
   peak_lr: 0.004
+  peak_lr_scaled: null
+  peak_lr_scaling: null
   warmup_frac: 0.05
   b1: 0.9
   b2: null
