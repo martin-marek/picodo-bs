@@ -29,7 +29,8 @@ model:
 opt:
   optimizer: 'sgd'
   batch_size: 16
-  microbatch_size: 16
+  max_microbatch_size: 16
+  microbatch_size: ${eval:'min(${opt.batch_size}, ${opt.max_microbatch_size})'} 
   grad_acc_steps: ${eval:'${opt.batch_size} // ${opt.microbatch_size}'}
   peak_lr: null
   peak_lr_scaled: null
