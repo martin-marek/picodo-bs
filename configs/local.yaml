@@ -15,5 +15,5 @@ model:
   L: 128
 
 opt:
+  batch_size: 8
   microbatch_size: 8
-  warmup_steps: 10
