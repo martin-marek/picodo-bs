@@ -17,9 +17,9 @@ run_name: null
 
 model:
   k: 2 # model size scaling factor, 6 ≈ 124M param
-  D: ${eval:'128 * ${model.k}'} # model/embed/qkv dim
-  F: ${eval:'4 * ${model.D}'} # FF inner dimension = 4 x embed dim.
-  H: ${eval:'2 * ${model.k}'} # num. attention heads, each with dim. D/H = 64
+  D: ${mul:128, ${model.k}} # model/embed/qkv dim
+  F: ${mul:4, ${model.D}} # FF inner dimension = 4 x embed dim.
+  H: ${mul:2, ${model.k}} # num. attention heads, each with dim. D/H = 64
   L: 512 # context/sequence length
   N: 12 # num. block layers
   V: 50257 # vocab size -> must match dataset tokenizer!
@@ -30,8 +30,8 @@ opt:
   optimizer: 'sgd'
   batch_size: 16
   max_microbatch_size: 16
-  microbatch_size: ${eval:'min(${opt.batch_size}, ${opt.max_microbatch_size})'} 
-  grad_acc_steps: ${eval:'${opt.batch_size} // ${opt.microbatch_size}'}
+  microbatch_size: ${min:${opt.batch_size}, ${opt.max_microbatch_size}} 
+  grad_acc_steps: ${floordiv:${opt.batch_size}, ${opt.microbatch_size}}
   peak_lr: null
   peak_lr_scaled: null
   peak_lr_scaling: null
