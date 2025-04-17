@@ -9,7 +9,6 @@ def get_optimizer(c: OmegaConf, num_microbatch_steps: int, tokens_per_microbatch
     assert (c.peak_lr is not None) ^ ((c.peak_lr_scaled is not None) & (c.peak_lr_scaling is not None))
     if c.peak_lr is None:
         c.peak_lr = c.peak_lr_scaling * c.peak_lr_scaled
-    print(f'{c.peak_lr=}')
 
     # get schedule
     warmup_steps = int(c.warmup_frac * num_microbatch_steps)
@@ -17,7 +16,6 @@ def get_optimizer(c: OmegaConf, num_microbatch_steps: int, tokens_per_microbatch
     
     # gradient accumulation wrapper
     multistep_wrapper = multistep.singlesteps if c.grad_acc_steps==1 else multistep.multisteps
-    print(f'{c.grad_acc_steps=}')
 
     # convert t2 <-> b2
     assert (c.b2 is None) or (c.t2 is None) # both cannot be specified in config
