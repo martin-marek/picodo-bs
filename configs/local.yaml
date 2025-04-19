@@ -14,8 +14,9 @@ model:
   L: 128
 
 opt:
-  optimizer: 'muon'
-  b2: 0.95
+  optimizer: 'adamw'
+  b1: 0.9
+  t2: 100_000
   batch_size: 8
   peak_lr: null
   peak_lr_scaled: 0.001

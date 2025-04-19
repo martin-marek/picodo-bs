@@ -36,7 +36,8 @@ opt:
   peak_lr_scaled: null
   peak_lr_scaling: null
   warmup_frac: 0.05
-  b1: 0.9
+  b1: null
   b2: null
-  t2: null
+  t1: null # units: num. of steps
+  t2: null # units: num. of tokens
   weight_decay: 0

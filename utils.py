@@ -21,7 +21,7 @@ def get_num_model_params(model: nnx.Module):
     return n_params
 
 
-def halflife_to_decay(t_token, n_batch):
+def halflife_to_decay(t_token, n_batch=1):
     """
     notation:
     - t_token: halflife measured in number of tokens
@@ -34,7 +34,7 @@ def halflife_to_decay(t_token, n_batch):
     return d
 
 
-def decay_to_halflife(d, n_batch):
+def decay_to_halflife(d, n_batch=1):
     """
     notation:
     - t_token: halflife measured in number of tokens
