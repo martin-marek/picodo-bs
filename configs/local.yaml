@@ -6,8 +6,7 @@ batch_size_valid: 8
 num_tokens_train: 100_000
 num_tokens_valid: 2_048
 num_eval_steps: 10
-ds_path_train: '/Users/martin/datasets/fineweb_gpt2_2p5B.bin'
-ds_path_valid: '/Users/martin/datasets/fineweb_gpt2_2p5B.bin'
+ds_path: '/Users/martin/datasets/fineweb_gpt2_2p5B.bin'
 wandb_mode: 'offline'
 
 model:
@@ -15,5 +14,9 @@ model:
   L: 128
 
 opt:
+  optimizer: 'muon'
+  b2: 0.95
   batch_size: 8
-  microbatch_size: 8
+  peak_lr: null
+  peak_lr_scaled: 0.001
+  peak_lr_scaling: ${pow:${opt.batch_size}, 0.5}

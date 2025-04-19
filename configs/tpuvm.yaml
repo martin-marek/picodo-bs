@@ -1,7 +1,0 @@
-defaults:
-  - default
-  - _self_
-
-ds_path_train: '/home/martin/datasets/fineweb_edu_gpt2_2.5B/train.bin'
-ds_path_valid: '/home/martin/datasets/fineweb_edu_gpt2_2.5B/val.bin'
-wandb_project: 'picodo-trc'

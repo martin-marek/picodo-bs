@@ -4,11 +4,10 @@ defaults:
   - override hydra/job_logging: disabled
 
 seed: 0
-ds_path_train: null
-ds_path_valid: null
+ds_path: null
 tokens_params_ratio: 20 # chinchilla scaling
 num_tokens_train: null
-num_tokens_valid: null
+num_tokens_valid: 1_000_000
 batch_size_valid: 32
 num_eval_steps: 100
 wandb_project: 'picodo-bs'

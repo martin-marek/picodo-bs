@@ -124,7 +124,8 @@ def create_sharded_model(c: DictConfig, mesh: Mesh, seed: int):
 
     @nnx.jit
     def initialize_sharded_model():
-        model = TransformerDecoder(c, rngs=nnx.Rngs(seed)) # unsharded at this moment
+        rngs = nnx.Rngs(seed)
+        model = TransformerDecoder(c, rngs=nnx.Rngs(int(seed))) # unsharded at this moment
         state = nnx.state(model) # the model's state, a pure pytree
         pspecs = nnx.get_partition_spec(state) # get annotations from state
         sharded_state = jax.lax.with_sharding_constraint(state, pspecs)
