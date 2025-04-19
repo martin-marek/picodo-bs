@@ -23,6 +23,7 @@ model:
   L: 512 # context/sequence length
   N: 12 # num. block layers
   V: 50257 # vocab size -> must match dataset tokenizer!
+  tie_token_embed: true
   fsdp_enabled: true
   dtype: null
 
