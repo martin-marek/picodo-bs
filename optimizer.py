@@ -37,7 +37,7 @@ def get_optimizer(c: OmegaConf, params, num_microbatch_steps: int, tokens_per_mi
     if c.optimizer == 'adamw':
         assert c.b1 is not None
         assert c.b2 is not None
-        wd_mask = jtu.tree_map_with_path(lambda path, _: path[-2].key in ('kernel', 'embedding'), params)
+        wd_mask = jtu.tree_map_with_path(lambda path, _: path[-2].key=='kernel', params)
         optimizer_factory = optax.inject_hyperparams(multistep_wrapper(optax.adamw, c.grad_acc_steps))
         optimizer = optimizer_factory(lr_schedule, c.b1, c.b2, weight_decay=c.weight_decay, eps=c.eps, mask=wd_mask)
     
