@@ -37,12 +37,12 @@ def get_optimizer(c: OmegaConf, num_microbatch_steps: int, tokens_per_microbatch
         assert c.b1 is not None
         assert c.b2 is not None
         optimizer_factory = optax.inject_hyperparams(multistep_wrapper(optax.adamw, c.grad_acc_steps))
-        optimizer = optimizer_factory(lr_schedule, c.b1, c.b2, weight_decay=c.weight_decay)
+        optimizer = optimizer_factory(lr_schedule, c.b1, c.b2, weight_decay=c.weight_decay, eps=c.eps)
     
     if c.optimizer == 'muon':
         assert c.b1 is not None
         assert c.b2 is not None
         optimizer_factory = optax.inject_hyperparams(multistep_wrapper(muon.muon, c.grad_acc_steps))
-        optimizer = optimizer_factory(lr_schedule, beta=c.b1, adam_b1=c.b1, adam_b2=c.b2, adam_weight_decay=c.weight_decay)
+        optimizer = optimizer_factory(lr_schedule, beta=c.b1, adam_b1=c.b1, adam_b2=c.b2, adam_weight_decay=c.weight_decay, eps=c.eps)
 
     return optimizer
