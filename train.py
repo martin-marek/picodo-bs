@@ -54,6 +54,7 @@ def train_and_evaluate(c: DictConfig):
 
     # model
     model = model_lib.create_sharded_model(c.model, mesh, seed_model)
+    model_graphdef, model_state = nnx.split(model)
     n_param = utils.get_num_model_params(model)
     print(f'{n_param=:_}')
 
@@ -66,7 +67,7 @@ def train_and_evaluate(c: DictConfig):
     # optimizer
     num_microbatch_steps = len(idx_train)
     tokens_per_microbatch = c.opt.microbatch_size * c.model.L
-    tx = optimizer_lib.get_optimizer(c.opt, num_microbatch_steps, tokens_per_microbatch)
+    tx = optimizer_lib.get_optimizer(c.opt, model_state, num_microbatch_steps, tokens_per_microbatch)
     optimizer = nnx.Optimizer(model, tx)
 
     # start wandb
@@ -78,7 +79,6 @@ def train_and_evaluate(c: DictConfig):
     # note: metrics for each steps are processed only after asynchronously dispatching the next step
     pending_train_metrics = None
     pending_eval_metrics = None
-    model_graphdef = nnx.graphdef(model)
     opt_graphdef, opt_state = nnx.split(optimizer)
     with mesh:
         pbar = tqdm(enumerate(idx_train))
