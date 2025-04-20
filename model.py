@@ -48,8 +48,8 @@ class MultiHeadAttention(nnx.Module):
     self.head_dim = c.D // c.H
     self.qkv_proj = nnx.Einsum('bTD,SNDH->SbTNH', (3, c.H, c.D, c.D//c.H), kernel_init=qkv_proj_init, dtype=c.dtype, rngs=rngs)
     self.out_proj = nnx.Einsum('bTNH,NHD->bTD', (c.H, c.D//c.H, c.D),  kernel_init=out_proj_init, dtype=c.dtype, rngs=rngs)
-    self.query_norm = nnx.LayerNorm(self.head_dim, use_bias=True, dtype=c.dtype, rngs=rngs)
-    self.key_norm = nnx.LayerNorm(self.head_dim, use_bias=True, dtype=c.dtype, rngs=rngs)
+    self.query_norm = nnx.LayerNorm(self.head_dim, use_bias=False, dtype=c.dtype, rngs=rngs)
+    self.key_norm = nnx.LayerNorm(self.head_dim, use_bias=False, dtype=c.dtype, rngs=rngs)
     self.query_scaling = (c.D/c.H)**-0.5
     self.dtype = c.dtype
 
