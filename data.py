@@ -38,23 +38,6 @@ def load_ds(ds_path, seq_len, bs_train, bs_valid, n_tokens_valid, n_tokens_train
     return get_batch, seq_idx_train, seq_idx_valid
 
 
-@jax.jit
-def mask_idx(mask, idx):
-    B, _, L, L = mask.shape
-    b, l = idx
-    i = jnp.arange(L)
-    mask = mask.at[b].set(mask[b] & ~((i[:, None] > l) & (i[None, :] <= l)))
-    return mask, None
-
-def get_att_mask(batch, eos_token_id=1):
-    B, L = batch.shape
-    mask = jnp.tril(jnp.ones([B, 1, L, L], dtype=jnp.bool_))
-    # eos_idxs = jnp.argwhere(batch==eos_token_id)
-    eos_idxs = jnp.argwhere(batch==eos_token_id, size=10*B, fill_value=(0, L-1))
-    mask, _ = jax.lax.scan(mask_idx, mask, eos_idxs)
-    return mask
-
-
 def pad_mask(batch, eos_token_id=1):
     B, L = batch.shape
 

@@ -16,9 +16,8 @@ from omegaconf.dictconfig import DictConfig
 
 def loss_fn(model, batch, pad=False):
     x, y = batch[:, :-1], batch[:, 1:]
-    att_mask = data.get_att_mask(x)
     loss_mask = data.pad_mask(x) if pad else jnp.ones(x.shape)
-    logits = model(x, att_mask)
+    logits = model(x)
     losses = optax.softmax_cross_entropy_with_integer_labels(logits, y)
     return (losses * loss_mask).sum() / loss_mask.sum()
 
@@ -51,7 +50,6 @@ def train_and_evaluate(c: DictConfig):
     # all devices are aligned across a single mesh axis called 'data'
     # we use FSDP to shard data, model, and optimzier parameters across this axis
     mesh = Mesh(mesh_utils.create_device_mesh((jax.device_count(),)), ('data',))
-    # data_sharding = NamedSharding(mesh, P('data')) # data parallelism
 
     # model
     model = model_lib.create_sharded_model(c.model, mesh, seed_model)
@@ -66,12 +64,7 @@ def train_and_evaluate(c: DictConfig):
     if c.num_tokens_train is None:
         c.num_tokens_train = ds_train_size if c.tokens_params_ratio is None else n_param * c.tokens_params_ratio
     get_batch, idx_train, idx_valid = data.load_ds(c.ds_path, c.model.L, c.opt.microbatch_size, c.batch_size_valid, c.num_tokens_valid, c.num_tokens_train, seed_dataset)
-    # with mesh: ds_valid = jnp.stack([jax.device_put(get_batch(idx), data_sharding) for idx in idx_valid])
     with mesh: ds_valid = jax.device_put(jnp.stack(list(map(get_batch, idx_valid))), NamedSharding(mesh, P(None, 'data', None))) # [N, B, L]
-    # with mesh:
-    #     batches_valid, masks_valid = zip(map(get_batch, idx_valid))
-    #     batches_valid = jax.device_put(batches_valid, NamedSharding(mesh, P(None, 'data',))) # [N, B, L]
-    #     masks_valid = jax.device_put(masks_valid, NamedSharding(mesh, P(None, 'data',))) # [N, B, 1, L, L]
 
 
     # optimizer
