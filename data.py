@@ -1,3 +1,4 @@
+import os
 import jax
 import numpy as np
 import jax.numpy as jnp
@@ -6,8 +7,10 @@ import jax.numpy as jnp
 def load_ds(ds_path, seq_len, bs_train, bs_valid, n_tokens_valid, n_tokens_train=None, seed=0):
 
     # read dataset
+    ds_path = os.path.expanduser(ds_path)
     data = np.memmap(ds_path, dtype=np.uint16, mode='r')
     n_tokens_dataset = len(data)
+    n_batch_dataset = n_tokens_dataset // (seq_len+1)
 
     # if n_tokens_train is None, use full dataset
     if n_tokens_train is not None: assert n_tokens_train + n_tokens_valid <= n_tokens_dataset
@@ -27,25 +30,9 @@ def load_ds(ds_path, seq_len, bs_train, bs_valid, n_tokens_valid, n_tokens_train
     seq_idx_valid = seq_idx[:n_seq_valid].reshape([n_batch_valid, bs_valid])
 
     # define sequence loader
+    # using np.memmap for each batch to avoid memory leak
     def get_batch(seq_idxs): # [B]
-
-        # read dataset
-        # using np.memmap for each batch to avoid memory leak
-        data = np.memmap(ds_path, dtype=np.uint16, mode='r')
-
-        # get batch
-        token_idxs = seq_len*seq_idxs[:, None] + np.arange(seq_len)[None, :] # [B, L]
-        batch = data[token_idxs] # [B, L]
-
-        return batch
+        data = np.memmap(ds_path, dtype=np.uint16, shape=[n_batch_dataset, seq_len+1], mode='r')
+        return data[seq_idxs] # [B, L]
 
     return get_batch, seq_idx_train, seq_idx_valid
-
-
-def get_in_out(batch: jax.Array, pad_id: int = 0):
-  """Returns input, output, and weights for a batch of examples."""
-  # Assumes input of the form <BOS> <IDs> <EOS> for eval.
-  x = batch # [B, L]
-  y = jnp.pad(x[:, 1:], ((0, 0), (0, 1)), constant_values=pad_id) # shift x by 1 along L axis
-  weights = jnp.where(y != pad_id, 1, 0).astype(jnp.float32)
-  return x, y, weights

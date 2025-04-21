@@ -2,22 +2,22 @@ defaults:
   - default
   - _self_
 
-batch_size_valid: 8
+batch_size_valid: 1
 num_tokens_train: 100_000
 num_tokens_valid: 2_048
 num_eval_steps: 10
-ds_path: '/Users/martin/datasets/fineweb_gpt2_2p5B.bin'
+ds_path: '~/datasets/c4_t5_600M_512.bin'
 wandb_mode: 'offline'
 
 model:
-  k: 1
-  L: 128
+  k: 2
+  tie_token_embed: false
 
 opt:
   optimizer: 'adamw'
   b1: 0.9
   t2: 100_000
-  batch_size: 8
+  batch_size: 1
   peak_lr: null
   peak_lr_scaled: 0.001
   peak_lr_scaling: ${pow:${opt.batch_size}, 0.5}
