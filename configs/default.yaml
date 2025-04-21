@@ -40,4 +40,5 @@ opt:
   b2: null
   t1: null # units: num. of steps
   t2: null # units: num. of tokens
+  b2_min: null
   weight_decay: 0
