@@ -12,7 +12,7 @@ class TransformerDecoder(nnx.Module):
         self.token_embed_in = nnx.Embed(num_embeddings=c.V, features=c.D, embedding_init=embed_init, rngs=rngs)
         self.token_embed_out = self.token_embed_in if c.tie_token_embed else nnx.Embed(num_embeddings=c.V, features=c.D, embedding_init=embed_init, rngs=rngs)
         self.blocks = [TransformerBlock(c, rngs) for _ in range(c.N)]
-        self.out_ln = nnx.LayerNorm(c.D, use_bias=False, dtype=c.dtype, rngs=rngs)
+        self.out_ln = nnx.RMSNorm(c.D, use_scale=False, dtype=c.dtype, rngs=rngs)
         
     def __call__(self, x, att_mask): # [B, S]
         # token embedding
@@ -30,8 +30,8 @@ class TransformerDecoder(nnx.Module):
 
 class TransformerBlock(nnx.Module):
     def __init__(self, c: DictConfig, rngs: nnx.Rngs):
-        self.ln1 = nnx.LayerNorm(c.D, use_bias=False, dtype=c.dtype, rngs=rngs)
-        self.ln2 = nnx.LayerNorm(c.D, use_bias=False, dtype=c.dtype, rngs=rngs)
+        self.ln1 = nnx.RMSNorm(c.D, use_scale=False, dtype=c.dtype, rngs=rngs)
+        self.ln2 = nnx.RMSNorm(c.D, use_scale=False, dtype=c.dtype, rngs=rngs)
         self.attn = MultiHeadAttention(c, rngs=rngs)
         self.mlp = Mlp(c, rngs)
         
@@ -48,8 +48,8 @@ class MultiHeadAttention(nnx.Module):
     self.head_dim = c.D // c.H
     self.qkv_proj = nnx.Einsum('bTD,SNDH->SbTNH', (3, c.H, c.D, c.D//c.H), kernel_init=qkv_proj_init, dtype=c.dtype, rngs=rngs)
     self.out_proj = nnx.Einsum('bTNH,NHD->bTD', (c.H, c.D//c.H, c.D),  kernel_init=out_proj_init, dtype=c.dtype, rngs=rngs)
-    self.query_norm = nnx.LayerNorm(self.head_dim, use_bias=False, dtype=c.dtype, rngs=rngs)
-    self.key_norm = nnx.LayerNorm(self.head_dim, use_bias=False, dtype=c.dtype, rngs=rngs)
+    self.query_norm = nnx.RMSNorm(self.head_dim, use_scale=False, dtype=c.dtype, rngs=rngs)
+    self.key_norm = nnx.RMSNorm(self.head_dim, use_scale=False, dtype=c.dtype, rngs=rngs)
     self.query_scaling = (c.D/c.H)**-0.5
     self.dtype = c.dtype
 
