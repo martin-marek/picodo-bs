@@ -87,8 +87,8 @@ def train_and_evaluate(c: DictConfig):
     pending_eval_metrics = None
     opt_graphdef, opt_state = nnx.split(optimizer)
     with mesh:
-        pbar = tqdm(enumerate(idx_train))
-        for step, seq_idx in pbar:
+        pbar = tqdm(idx_train)
+        for step, seq_idx in enumerate(pbar):
 
             # training step
             batch = jax.device_put(get_batch(seq_idx), data_sharding)
