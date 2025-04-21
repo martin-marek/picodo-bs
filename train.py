@@ -37,7 +37,7 @@ def train_step(opt_graphdef, opt_state, batch):
 @partial(jax.jit, static_argnames='model_graphdef')
 def eval_step(model_graphdef, model_state, dataset):
     model = nnx.merge(model_graphdef, model_state)
-    losses = jax.lax.map(partial(loss_fn, model), dataset, True)
+    losses = jax.lax.map(partial(loss_fn, model, pad=True), dataset)
     return {'eval_loss': losses.mean()}
 
 
