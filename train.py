@@ -14,16 +14,24 @@ from jax.sharding import PartitionSpec as P
 from omegaconf.dictconfig import DictConfig
 
 
-def loss_fn(model, batch):
+def loss_fn_noam(model, batch):
     logits = model(batch[:, :-1])
     losses = optax.softmax_cross_entropy_with_integer_labels(logits, batch[:, 1:])
     return losses.mean()
 
 
+def loss_fn_padded(model, batch):
+    x, y = batch[:, :-1], batch[:, 1:]
+    mask = utils.pad_mask(x)
+    logits = model(x)
+    losses = optax.softmax_cross_entropy_with_integer_labels(logits, y)
+    return (losses * mask).sum() / mask.sum()
+
+
 @partial(jax.jit, static_argnames='opt_graphdef')
 def train_step(opt_graphdef, opt_state, batch):
     optimizer = nnx.merge(opt_graphdef, opt_state)
-    loss, grads = nnx.value_and_grad(loss_fn)(optimizer.model, batch)
+    loss, grads = nnx.value_and_grad(loss_fn_noam)(optimizer.model, batch)
     optimizer.update(grads)
     opt_state = nnx.state(optimizer)
     lr = optimizer.opt_state.hyperparams['learning_rate'].value
@@ -34,7 +42,7 @@ def train_step(opt_graphdef, opt_state, batch):
 @partial(jax.jit, static_argnames='model_graphdef')
 def eval_step(model_graphdef, model_state, dataset):
     model = nnx.merge(model_graphdef, model_state)
-    losses = jax.lax.map(partial(loss_fn, model), dataset)
+    losses = jax.lax.map(partial(loss_fn_padded, model), dataset)
     return {'eval_loss': losses.mean()}
 
 
