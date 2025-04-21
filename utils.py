@@ -46,16 +46,3 @@ def decay_to_halflife(d, n_batch=1):
     t_steps = jnp.log(1/2) / jnp.log(d)
     t_token = t_steps * n_batch
     return t_token
-
-
-def pad_mask(batch, eos_token_id=1):
-    B, L = batch.shape
-
-    # get idx of last EOS token
-    # if there is no EOS token, equals L-1
-    idx_last_eos_token = (L - 1) - jnp.argmax(batch[:, ::-1] == eos_token_id, axis=1)
-    
-    # only use tokens before the last EOS token
-    mask = jnp.arange(L)[None, :] <= idx_last_eos_token[:, None]
-
-    return mask # [B, L]

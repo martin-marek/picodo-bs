@@ -15,17 +15,20 @@ from omegaconf.dictconfig import DictConfig
 
 
 def loss_fn_noam(model, batch):
-    logits = model(batch[:, :-1])
+    x, y = batch[:, :-1], batch[:, 1:]
+    att_mask = data.get_att_mask(x)
+    logits = model(batch[:, :-1], att_mask)
     losses = optax.softmax_cross_entropy_with_integer_labels(logits, batch[:, 1:])
     return losses.mean()
 
 
 def loss_fn_padded(model, batch):
     x, y = batch[:, :-1], batch[:, 1:]
-    mask = utils.pad_mask(x)
-    logits = model(x)
+    att_mask = data.get_att_mask(x)
+    loss_mask = data.pad_mask(x)
+    logits = model(x, att_mask)
     losses = optax.softmax_cross_entropy_with_integer_labels(logits, y)
-    return (losses * mask).sum() / mask.sum()
+    return (losses * loss_mask).sum() / loss_mask.sum()
 
 
 @partial(jax.jit, static_argnames='opt_graphdef')
@@ -56,7 +59,7 @@ def train_and_evaluate(c: DictConfig):
     # all devices are aligned across a single mesh axis called 'data'
     # we use FSDP to shard data, model, and optimzier parameters across this axis
     mesh = Mesh(mesh_utils.create_device_mesh((jax.device_count(),)), ('data',))
-    data_sharding = NamedSharding(mesh, P('data')) # data parallelism
+    # data_sharding = NamedSharding(mesh, P('data')) # data parallelism
 
     # model
     model = model_lib.create_sharded_model(c.model, mesh, seed_model)
@@ -68,7 +71,13 @@ def train_and_evaluate(c: DictConfig):
     if c.num_tokens_train is None:
         c.num_tokens_train = ds_train_size if c.tokens_params_ratio is None else n_param * c.tokens_params_ratio
     get_batch, idx_train, idx_valid = data.load_ds(c.ds_path, c.model.L, c.opt.microbatch_size, c.batch_size_valid, c.num_tokens_valid, c.num_tokens_train, seed_dataset)
-    with mesh: ds_valid = jnp.stack([jax.device_put(get_batch(idx), data_sharding) for idx in idx_valid])
+    # with mesh: ds_valid = jnp.stack([jax.device_put(get_batch(idx), data_sharding) for idx in idx_valid])
+    with mesh: ds_valid = jax.device_put(jnp.stack(list(map(get_batch, idx_valid))), NamedSharding(mesh, P(None, 'data', None))) # [N, B, L]
+    # with mesh:
+    #     batches_valid, masks_valid = zip(map(get_batch, idx_valid))
+    #     batches_valid = jax.device_put(batches_valid, NamedSharding(mesh, P(None, 'data',))) # [N, B, L]
+    #     masks_valid = jax.device_put(masks_valid, NamedSharding(mesh, P(None, 'data',))) # [N, B, 1, L, L]
+
 
     # optimizer
     num_microbatch_steps = len(idx_train)
@@ -91,7 +100,7 @@ def train_and_evaluate(c: DictConfig):
         for step, seq_idx in enumerate(pbar):
 
             # training step
-            batch = jax.device_put(get_batch(seq_idx), data_sharding)
+            batch = jax.device_put(get_batch(seq_idx), NamedSharding(mesh, P('data', None))) # [B, L]
             opt_state, train_metrics = train_step(opt_graphdef, opt_state, batch)
             train_metrics |= {'train_tokens_seen': (step+1)*tokens_per_microbatch}
 

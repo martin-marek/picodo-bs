@@ -14,13 +14,13 @@ class TransformerDecoder(nnx.Module):
         self.blocks = [TransformerBlock(c, rngs) for _ in range(c.N)]
         self.out_ln = nnx.LayerNorm(c.D, use_bias=False, dtype=c.dtype, rngs=rngs)
         
-    def __call__(self, x): # [B, S]
+    def __call__(self, x, att_mask): # [B, S]
         # token embedding
         h = self.token_embed_in(x) # [B, L, D]
         
         # transformer blocks
         for block in self.blocks:
-            h = block(h)
+            h = block(h, att_mask)
             
         # project back to vocabulary
         h = self.out_ln(h)
@@ -35,8 +35,8 @@ class TransformerBlock(nnx.Module):
         self.attn = MultiHeadAttention(c, rngs=rngs)
         self.mlp = Mlp(c, rngs)
         
-    def __call__(self, x): # [B, L, D]
-        x = x + self.attn(self.ln1(x)) # attention block
+    def __call__(self, x, att_mask): # [B, L, D]
+        x = x + self.attn(self.ln1(x), att_mask) # attention block
         return x + self.mlp(self.ln2(x)) # MLP block
 
 
@@ -53,7 +53,7 @@ class MultiHeadAttention(nnx.Module):
     self.query_scaling = (c.D/c.H)**-0.5
     self.dtype = c.dtype
 
-  def __call__(self, x): # [B, L, D]
+  def __call__(self, x, att_mask): # [B, L, D]
     B, L, D = x.shape
 
     # input projection
@@ -73,9 +73,8 @@ class MultiHeadAttention(nnx.Module):
     att = jnp.einsum('bqhd,bkhd->bhqk', q, k).astype(jnp.float32) # [B, H, L, L]
 
     # causal mask
-    mask = jnp.tril(jnp.ones((1, 1, L, L), dtype=jnp.bool_))
     _NEG_INF = jnp.finfo(att.dtype).min
-    att = jnp.where(mask, att, _NEG_INF)
+    att = jnp.where(att_mask, att, _NEG_INF)
 
     # attended values
     att = jax.nn.softmax(att, axis=-1).astype(self.dtype)
