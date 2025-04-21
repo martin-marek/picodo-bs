@@ -14,18 +14,10 @@ from jax.sharding import PartitionSpec as P
 from omegaconf.dictconfig import DictConfig
 
 
-def loss_fn_noam(model, batch):
+def loss_fn(model, batch, pad=False):
     x, y = batch[:, :-1], batch[:, 1:]
     att_mask = data.get_att_mask(x)
-    logits = model(batch[:, :-1], att_mask)
-    losses = optax.softmax_cross_entropy_with_integer_labels(logits, batch[:, 1:])
-    return losses.mean()
-
-
-def loss_fn_padded(model, batch):
-    x, y = batch[:, :-1], batch[:, 1:]
-    att_mask = data.get_att_mask(x)
-    loss_mask = data.pad_mask(x)
+    loss_mask = data.pad_mask(x) if pad else jnp.ones(x.shape)
     logits = model(x, att_mask)
     losses = optax.softmax_cross_entropy_with_integer_labels(logits, y)
     return (losses * loss_mask).sum() / loss_mask.sum()
@@ -34,7 +26,7 @@ def loss_fn_padded(model, batch):
 @partial(jax.jit, static_argnames='opt_graphdef')
 def train_step(opt_graphdef, opt_state, batch):
     optimizer = nnx.merge(opt_graphdef, opt_state)
-    loss, grads = nnx.value_and_grad(loss_fn_noam)(optimizer.model, batch)
+    loss, grads = nnx.value_and_grad(loss_fn)(optimizer.model, batch)
     optimizer.update(grads)
     opt_state = nnx.state(optimizer)
     lr = optimizer.opt_state.hyperparams['learning_rate'].value
@@ -45,7 +37,7 @@ def train_step(opt_graphdef, opt_state, batch):
 @partial(jax.jit, static_argnames='model_graphdef')
 def eval_step(model_graphdef, model_state, dataset):
     model = nnx.merge(model_graphdef, model_state)
-    losses = jax.lax.map(partial(loss_fn_padded, model), dataset)
+    losses = jax.lax.map(partial(loss_fn, model), dataset, True)
     return {'eval_loss': losses.mean()}
 
 
@@ -66,6 +58,9 @@ def train_and_evaluate(c: DictConfig):
     model_graphdef, model_state = nnx.split(model)
     n_param = utils.get_num_model_params(model)
     print(f'{n_param=:_}')
+
+    # print model shape
+    jax.tree_util.tree_map_with_path(lambda path, p: print(f'{jax.tree_util.keystr(path)}: {p.shape}'), model_state)
 
     # dataset
     if c.num_tokens_train is None:
