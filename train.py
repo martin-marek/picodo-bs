@@ -57,15 +57,11 @@ def train_and_evaluate(c: DictConfig):
     n_param = utils.get_num_model_params(model)
     print(f'{n_param=:_}')
 
-    # print model shape
-    jax.tree_util.tree_map_with_path(lambda path, p: print(f'{jax.tree_util.keystr(path)}: {p.shape}'), model_state)
-
     # dataset
     if c.num_tokens_train is None:
         c.num_tokens_train = ds_train_size if c.tokens_params_ratio is None else n_param * c.tokens_params_ratio
     get_batch, idx_train, idx_valid = data.load_ds(c.ds_path, c.model.L, c.opt.microbatch_size, c.batch_size_valid, c.num_tokens_valid, c.num_tokens_train, seed_dataset)
     with mesh: ds_valid = jax.device_put(jnp.stack(list(map(get_batch, idx_valid))), NamedSharding(mesh, P(None, 'data', None))) # [N, B, L]
-
 
     # optimizer
     num_microbatch_steps = len(idx_train)
