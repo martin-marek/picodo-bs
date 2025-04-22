@@ -15,12 +15,12 @@ wandb_mode: 'online'
 run_name: null
 
 model:
-  k: 2 # model size scaling factor, 6 ≈ 124M param
+  k: 4
   D: ${mul:128, ${model.k}} # model/embed/qkv dim
   F: ${mul:4, ${model.D}} # FF inner dimension = 4 x embed dim.
   H: ${mul:2, ${model.k}} # num. attention heads, each with dim. D/H = 64
+  N: 6 # num. block layers
   L: 512 # context/sequence length
-  N: 12 # num. block layers
   V: 50257 # vocab size -> must match dataset tokenizer!
   tie_token_embed: false
   fsdp_enabled: true
