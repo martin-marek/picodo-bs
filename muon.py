@@ -24,8 +24,6 @@ def orthogonalize_via_newton_schulz(
     if x.ndim < 2:
         raise ValueError(f'Input must have >= 2 dims, got {x.shape}')
     if ns_coeffs.shape != (3,):
-        # print(ns_coeffs)
-        jax.debug.print("🤯 {ns_coeffs} 🤯", ns_coeffs=ns_coeffs)
         raise ValueError(f'ns_coeffs must have shape (3,), got {ns_coeffs}')
     def newton_schulz_iterator(x: jax.Array, coeffs: jax.Array) -> jax.Array:
         x_mT = jnp.swapaxes(x, -2, -1) # <-- changed (matrix transpose last 2 dims)
