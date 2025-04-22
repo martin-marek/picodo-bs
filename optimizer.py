@@ -31,20 +31,20 @@ def get_optimizer(c: OmegaConf, params, num_microbatch_steps: int, tokens_per_mi
         assert c.b2 is None
         assert c.t2 is None
         assert c.weight_decay == 0
-        optimizer_factory = optax.inject_hyperparams(multistep_wrapper(optax.sgd, c.grad_acc_steps))
-        optimizer = optimizer_factory(lr_schedule, c.b1)
+        grad_transform = multistep_wrapper(optax.sgd, c.grad_acc_steps)
+        optimizer = optax.inject_hyperparams(grad_transform)(lr_schedule, c.b1)
 
     if c.optimizer == 'adamw':
         assert c.b1 is not None
         assert c.b2 is not None
         if c.b2_min is not None: c.b2 = max(c.b2, c.b2_min)
-        optimizer_factory = optax.inject_hyperparams(multistep_wrapper(optax.adamw, c.grad_acc_steps))
-        optimizer = optimizer_factory(lr_schedule, c.b1, c.b2, weight_decay=c.weight_decay)
+        grad_transform = multistep_wrapper(optax.adamw, c.grad_acc_steps)
+        optimizer = optax.inject_hyperparams(grad_transform)(lr_schedule, c.b1, c.b2, weight_decay=c.weight_decay)
     
     if c.optimizer == 'muon':
         assert c.b1 is not None
         assert c.b2 is None
-        optimizer_factory = optax.inject_hyperparams(multistep_wrapper(muon.muon, c.grad_acc_steps))
-        optimizer = optimizer_factory(lr_schedule, beta=c.b1)
+        grad_transform = multistep_wrapper(muon.muon, c.grad_acc_steps)
+        optimizer = optax.inject_hyperparams(grad_transform)(lr_schedule, beta=c.b1)
 
     return optimizer
