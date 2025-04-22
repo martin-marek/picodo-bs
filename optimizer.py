@@ -1,5 +1,6 @@
 import optax
 from omegaconf import OmegaConf
+from optax._src import transform, combine
 import muon, multistep, utils
 
 
@@ -43,7 +44,7 @@ def get_optimizer(c: OmegaConf, params, num_microbatch_steps: int, tokens_per_mi
     if c.optimizer == 'muon':
         assert c.b1 is not None
         assert c.b2 is None
-        optimizer_factory = optax.inject_hyperparams(multistep_wrapper(muon.scale_by_muon, c.grad_acc_steps))
+        optimizer_factory = optax.inject_hyperparams(multistep_wrapper(muon.muon, c.grad_acc_steps))
         optimizer = optimizer_factory(lr_schedule, beta=c.b1)
 
     return optimizer
