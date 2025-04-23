@@ -82,4 +82,4 @@ def muon(
     return combine.chain(
         scale_by_muon(ns_coeffs, ns_steps, beta, eps),
         transform.scale_by_learning_rate(learning_rate),
-)
+    )
