@@ -1,0 +1,12 @@
+defaults:
+  - default
+  - _self_
+
+ds_path: '~/c4_t5all_1B_512.bin'
+num_tokens_train: 700_000_000
+
+model:
+  k: 4
+  N: 6
+  L: 512
+  V: 32101
