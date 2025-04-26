@@ -22,8 +22,8 @@ def get_optimizer(c: OmegaConf, params, num_microbatch_steps: int, tokens_per_mi
     assert (c.b1 is None) | (c.t1 is None) # at most one can be specified in config
     assert (c.b2 is None) | (c.t2 is None) # at most one can be specified in config
     tokens_per_opt_step = c.grad_acc_steps * tokens_per_microbatch
-    if c.b1 is None and c.t1 is not None: c.b1 = float(utils.halflife_to_decay(c.t1))
-    if c.t1 is None and c.b1 is not None: c.t1 = float(utils.decay_to_halflife(c.b1))
+    if c.b1 is None and c.t1 is not None: c.b1 = float(utils.halflife_to_decay(c.t1, tokens_per_opt_step))
+    if c.t1 is None and c.b1 is not None: c.t1 = float(utils.decay_to_halflife(c.b1, tokens_per_opt_step))
     if c.b2 is None and c.t2 is not None: c.b2 = float(utils.halflife_to_decay(c.t2, tokens_per_opt_step))
     if c.t2 is None and c.b2 is not None: c.t2 = float(utils.decay_to_halflife(c.b2, tokens_per_opt_step))
 
