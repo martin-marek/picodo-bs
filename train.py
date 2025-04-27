@@ -54,12 +54,17 @@ def train_and_evaluate(c: DictConfig):
     # model
     model = model_lib.create_sharded_model(c.model, mesh, seed_model)
     model_graphdef, model_state = nnx.split(model)
-    n_param = utils.get_num_model_params(model)
-    print(f'{n_param=:_}')
+    n_params = {
+        'n_param_nonembed': 12 * c.model.N * c.model.D**2,
+        'n_param_embed': c.model.D * c.model.V,
+        'n_param_total': utils.get_num_model_params(model),
+    }
+    for k, v in n_params.items():
+        print(f'{k}:{v=:_}')
 
     # dataset
     if c.num_tokens_train is None:
-        c.num_tokens_train = ds_train_size if c.tokens_params_ratio is None else n_param * c.tokens_params_ratio
+        c.num_tokens_train = ds_train_size if c.tokens_params_ratio is None else c.tokens_params_ratio * (n_params['n_param_nonembed'] + n_params['n_param_embed'])
     get_batch, idx_train, idx_valid = data.load_ds(c.ds_path, c.model.L, c.opt.microbatch_size, c.batch_size_valid, c.num_tokens_valid, c.num_tokens_train, seed_dataset)
     with mesh: ds_valid = jax.device_put(jnp.stack(list(map(get_batch, idx_valid))), NamedSharding(mesh, P(None, 'data', None))) # [N, B, L]
 
@@ -70,9 +75,8 @@ def train_and_evaluate(c: DictConfig):
     optimizer = nnx.Optimizer(model, tx)
 
     # start wandb
-    if c.wandb_project is not None:
-        wandb.init(project=c.wandb_project, config=utils.flatten_dict(c), mode=c.wandb_mode, name=c.run_name)
-        wandb.summary.update(dict(n_param=n_param))
+    wandb.init(project=c.wandb_project, config=utils.flatten_dict(c), mode=c.wandb_mode, name=c.run_name)
+    wandb.summary.update(n_params)
 
     # training loop
     # note: metrics for each steps are processed only after asynchronously dispatching the next step
