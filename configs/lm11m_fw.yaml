@@ -2,10 +2,10 @@ defaults:
   - default
   - _self_
 
-ds_path: '~/finewebedu_t5all_1B_512.bin'
+ds_path: '~/fineweb_gpt2_10B.bin'
 
 model:
   k: 3
   N: 6
   L: 512
-  V: 32101
+  V: 50257
