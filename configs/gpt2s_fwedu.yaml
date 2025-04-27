@@ -1,0 +1,11 @@
+defaults:
+  - default
+  - _self_
+
+ds_path: '~/finewebedu_gpt2_10B.bin'
+
+model:
+  k: 6
+  N: 12
+  L: 1024
+  V: 50257

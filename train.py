@@ -33,10 +33,10 @@ def train_step(opt_graphdef, opt_state, batch):
     return opt_state, metrics
 
 
-@partial(jax.jit, static_argnames='model_graphdef')
-def eval_step(model_graphdef, model_state, dataset):
+@partial(jax.jit, static_argnames=['model_graphdef', 'pad'])
+def eval_step(model_graphdef, model_state, dataset, pad=False):
     model = nnx.merge(model_graphdef, model_state)
-    losses = jax.lax.map(partial(loss_fn, model, pad=True), dataset)
+    losses = jax.lax.map(partial(loss_fn, model, pad=pad), dataset)
     return {'eval_loss': losses.mean()}
 
 
@@ -63,10 +63,11 @@ def train_and_evaluate(c: DictConfig):
         print(f'{k}:{v=:_}')
 
     # dataset
-    if c.num_tokens_train is None:
-        c.num_tokens_train = ds_train_size if c.tokens_params_ratio is None else c.tokens_params_ratio * (n_params['n_param_nonembed'] + n_params['n_param_embed'])
+    if (c.num_tokens_train is None) and (c.tokens_params_ratio is not None):
+        c.num_tokens_train = c.tokens_params_ratio * (n_params['n_param_nonembed'] + n_params['n_param_embed'])
     get_batch, idx_train, idx_valid = data.load_ds(c.ds_path, c.model.L, c.opt.microbatch_size, c.batch_size_valid, c.num_tokens_valid, c.num_tokens_train, seed_dataset)
     with mesh: ds_valid = jax.device_put(jnp.stack(list(map(get_batch, idx_valid))), NamedSharding(mesh, P(None, 'data', None))) # [N, B, L]
+    if (c.num_tokens_train is None): c.num_tokens_train = len(idx_train) * c.opt.microbatch_size
 
     # optimizer
     num_microbatch_steps = len(idx_train)
@@ -102,9 +103,10 @@ def train_and_evaluate(c: DictConfig):
                 pending_eval_metrics = None
 
             # eval step
-            eval_every_steps = len(idx_train) // c.num_eval_steps
-            if ((step+1) % eval_every_steps == 0) or ((step+1) == num_microbatch_steps):
-                pending_eval_metrics = eval_step(model_graphdef, opt_state.model, ds_valid)
+            if c.num_eval_steps > 1:
+                eval_every_steps = len(idx_train) // c.num_eval_steps
+                if ((step+1) % eval_every_steps == 0) or ((step+1) == num_microbatch_steps):
+                    pending_eval_metrics = eval_step(model_graphdef, opt_state.model, ds_valid, c.pad_eval)
 
         wandb.log(pending_train_metrics, step)
         wandb.log(pending_eval_metrics, step)
