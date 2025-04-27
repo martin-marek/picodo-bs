@@ -89,9 +89,10 @@ class MultiHeadAttention(nnx.Module):
 class Mlp(nnx.Module):
     """Multilayer perceptron."""
     def __init__(self, c: DictConfig, rngs: nnx.Rngs):
-        kernel_init = fsdp_init('mlp_kernel', c.fsdp_enabled)
-        self.fc1 = nnx.Linear(in_features=c.D, out_features=c.F, kernel_init=kernel_init, use_bias=False, dtype=c.dtype, rngs=rngs)
-        self.fc2 = nnx.Linear(in_features=c.F, out_features=c.D, kernel_init=kernel_init, use_bias=False, dtype=c.dtype, rngs=rngs)
+        fc1_init = fsdp_init('mlp_fc1', c.fsdp_enabled)
+        fc2_init = fsdp_init('mlp_fc2', c.fsdp_enabled)
+        self.fc1 = nnx.Linear(in_features=c.D, out_features=c.F, kernel_init=fc1_init, use_bias=False, dtype=c.dtype, rngs=rngs)
+        self.fc2 = nnx.Linear(in_features=c.F, out_features=c.D, kernel_init=fc2_init, use_bias=False, dtype=c.dtype, rngs=rngs)
         
     def __call__(self, x): # [B, L, D]
         h = jax.nn.gelu(self.fc1(x)) # [B, L, F]
@@ -110,8 +111,10 @@ def fsdp_init(layer_type: str, fsdp_enabled: bool):
             return partition_fn(kernel_init, (None, None, 'data', None))
         case 'attn_out_proj': # [H, D/H, D]
             return partition_fn(kernel_init, (None, None, 'data'))
-        case 'mlp_kernel': # [D, F]
+        case 'mlp_fc1': # [D, F]
             return partition_fn(kernel_init, ('data', None))
+        case 'mlp_fc2': # [F, D]
+            return partition_fn(kernel_init, (None, 'data'))
         case _:
             raise ValueError(f'unrecognized layer type: {layer_type}')
 
