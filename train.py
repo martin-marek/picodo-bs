@@ -76,8 +76,9 @@ def train_and_evaluate(c: DictConfig):
     optimizer = nnx.Optimizer(model, tx)
 
     # start wandb
-    wandb.init(project=c.wandb_project, config=utils.flatten_dict(c), mode=c.wandb_mode, name=c.run_name)
-    wandb.summary.update(n_params)
+    if jax.process_index() == 0:
+        wandb.init(project=c.wandb_project, config=utils.flatten_dict(c), mode=c.wandb_mode, name=c.run_name)
+        wandb.summary.update(n_params)
 
     # training loop
     # note: metrics for each steps are processed only after asynchronously dispatching the next step
@@ -85,7 +86,8 @@ def train_and_evaluate(c: DictConfig):
     pending_eval_metrics = None
     opt_graphdef, opt_state = nnx.split(optimizer)
     with mesh:
-        pbar = tqdm(idx_train)
+        pbar = idx_train
+        if jax.process_index() == 0: pbar = tqdm(pbar)
         for step, seq_idx in enumerate(pbar):
 
             # training step
@@ -94,13 +96,14 @@ def train_and_evaluate(c: DictConfig):
             train_metrics |= {'train_tokens_seen': (step+1)*tokens_per_microbatch}
 
             # async logging
-            if pending_train_metrics is not None:
-                pbar.set_postfix_str(f'loss={pending_train_metrics["train_loss"]:.2f}')
-                wandb.log(pending_train_metrics, step-1)
-            pending_train_metrics = train_metrics
-            if pending_eval_metrics is not None:
-                wandb.log(pending_eval_metrics, step-1)
-                pending_eval_metrics = None
+            if jax.process_index() == 0:
+                if pending_train_metrics is not None:
+                    pbar.set_postfix_str(f'loss={pending_train_metrics["train_loss"]:.2f}')
+                    wandb.log(pending_train_metrics, step-1)
+                pending_train_metrics = train_metrics
+                if pending_eval_metrics is not None:
+                    wandb.log(pending_eval_metrics, step-1)
+                    pending_eval_metrics = None
 
             # eval step
             if c.num_eval_steps > 1:
