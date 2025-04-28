@@ -3,7 +3,7 @@ defaults:
   - _self_
 
 ds_path: '~/datasets/fineweb_gpt2_10B.bin'
-num_tokens_train: 10_000_000
+num_tokens_train: 10_000_000_000
 
 model:
   D: 1600  # model/embed/qkv dim
