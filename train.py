@@ -111,5 +111,6 @@ def train_and_evaluate(c: DictConfig):
                 if ((step+1) % eval_every_steps == 0) or ((step+1) == num_microbatch_steps):
                     pending_eval_metrics = eval_step(model_graphdef, opt_state.model, ds_valid, c.pad_eval)
 
-        wandb.log(pending_train_metrics, step)
-        wandb.log(pending_eval_metrics, step)
+        if jax.process_index() == 0:
+            wandb.log(pending_train_metrics, step)
+            wandb.log(pending_eval_metrics, step)
