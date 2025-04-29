@@ -96,20 +96,17 @@ def train_and_evaluate(c: DictConfig):
             train_metrics |= {'train_tokens_seen': (step+1)*tokens_per_microbatch}
 
             # async logging
-            if jax.process_index() == 0:
-                if pending_train_metrics is not None:
-                    pbar.set_postfix_str(f'loss={pending_train_metrics["train_loss"]:.2f}')
-                    wandb.log(pending_train_metrics, step-1)
-                pending_train_metrics = train_metrics
-                if pending_eval_metrics is not None:
-                    wandb.log(pending_eval_metrics, step-1)
-                    pending_eval_metrics = None
+            if pending_train_metrics is not None:
+                pbar.set_postfix_str(f'loss={pending_train_metrics["train_loss"]:.2f}')
+                if jax.process_index() == 0: wandb.log(pending_train_metrics, step-1)
+            pending_train_metrics = train_metrics
+            if pending_eval_metrics is not None:
+                if jax.process_index() == 0: wandb.log(pending_eval_metrics, step-1)
+                pending_eval_metrics = None
 
             # eval step
-            if c.num_eval_steps > 1:
-                eval_every_steps = len(idx_train) // c.num_eval_steps
-                if ((step+1) % eval_every_steps == 0) or ((step+1) == num_microbatch_steps):
-                    pending_eval_metrics = eval_step(model_graphdef, opt_state.model, ds_valid, c.pad_eval)
+            if (c.num_eval_steps*(step+1)) % num_microbatch_steps < c.num_eval_steps:
+                pending_eval_metrics = eval_step(model_graphdef, opt_state.model, ds_valid, c.pad_eval)
 
         if jax.process_index() == 0:
             wandb.log(pending_train_metrics, step)
