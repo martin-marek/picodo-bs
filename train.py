@@ -60,7 +60,7 @@ def train_and_evaluate(c: DictConfig):
         'n_param_total': utils.get_num_model_params(model),
     }
     for k, v in n_params.items():
-        print(f'{k}:{v=:_}')
+        print(f'{k}={v:_}')
 
     # dataset
     if (c.num_tokens_train is None) and (c.tokens_params_ratio is not None):
