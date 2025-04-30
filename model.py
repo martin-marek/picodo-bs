@@ -8,8 +8,8 @@ from rope import apply_rope
 
 class TransformerDecoder(nnx.Module):
     def __init__(self, c: DictConfig, rngs: nnx.Rngs):
-        embed_in_init = sharded_init('embedding_in', c.shard)
-        embed_out_init = sharded_init('embedding_out', c.shard)
+        embed_in_init = sharded_init('embedding_in')
+        embed_out_init = sharded_init('embedding_out')
         self.token_embed_in = nnx.Embed(num_embeddings=c.V, features=c.D, embedding_init=embed_in_init, rngs=rngs)
         self.token_embed_out = nnx.Embed(num_embeddings=c.V, features=c.D, embedding_init=embed_out_init, rngs=rngs)
         self.blocks = [TransformerBlock(c, rngs) for _ in range(c.N)]
@@ -45,8 +45,8 @@ class TransformerBlock(nnx.Module):
 class MultiHeadAttention(nnx.Module):
   """Causal attention layer."""
   def __init__(self, c: DictConfig, rngs: nnx.Rngs):
-    qkv_proj_init = sharded_init('attn_qkv_proj', c.shard)
-    out_proj_init = sharded_init('attn_out_proj', c.shard)
+    qkv_proj_init = sharded_init('attn_qkv_proj')
+    out_proj_init = sharded_init('attn_out_proj')
     self.head_dim = c.D // c.H
     self.qkv_proj = nnx.Einsum('bTD,SNDH->SbNTH', (3, c.H, c.D, c.D//c.H), kernel_init=qkv_proj_init, dtype=c.dtype, rngs=rngs)
     self.out_proj = nnx.Einsum('bNTH,NHD->bTD', (c.H, c.D//c.H, c.D),  kernel_init=out_proj_init, dtype=c.dtype, rngs=rngs)
@@ -80,8 +80,8 @@ class MultiHeadAttention(nnx.Module):
 class Mlp(nnx.Module):
     """Multilayer perceptron."""
     def __init__(self, c: DictConfig, rngs: nnx.Rngs):
-        fc1_init = sharded_init('mlp_fc1', c.shard)
-        fc2_init = sharded_init('mlp_fc2', c.shard)
+        fc1_init = sharded_init('mlp_fc1')
+        fc2_init = sharded_init('mlp_fc2')
         self.fc1 = nnx.Linear(in_features=c.D, out_features=c.F, kernel_init=fc1_init, use_bias=False, dtype=c.dtype, rngs=rngs)
         self.fc2 = nnx.Linear(in_features=c.F, out_features=c.D, kernel_init=fc2_init, use_bias=False, dtype=c.dtype, rngs=rngs)
         
@@ -90,24 +90,23 @@ class Mlp(nnx.Module):
         return self.fc2(h) # [B, L, D]
 
 
-def sharded_init(layer_type: str, shard: bool):
+def sharded_init(layer_type: str):
     """Initialize weights with optional sharding."""
-    partition_fn = nnx.with_partitioning if shard else lambda x, _: x
     kernel_init = jax.nn.initializers.xavier_uniform()
     embed_init = jax.nn.initializers.variance_scaling(1.0, 'fan_in', 'normal', out_axis=0)
     match layer_type:
         case 'embedding_in': # [V, D]
-            return partition_fn(embed_init, (None, 'data'))
+            return nnx.with_partitioning(embed_init, ('model', 'data'))
         case 'embedding_out': # [V, D]
-            return partition_fn(embed_init, ('data', None))
+            return nnx.with_partitioning(embed_init, ('model', 'data'))
         case 'attn_qkv_proj': # [3, H, D, D/H]
-            return partition_fn(kernel_init, (None, None, 'data', None))
+            return nnx.with_partitioning(kernel_init, (None, 'model', 'data', None))
         case 'attn_out_proj': # [H, D/H, D]
-            return partition_fn(kernel_init, (None, None, 'data'))
+            return nnx.with_partitioning(kernel_init, ('model', None, 'data'))
         case 'mlp_fc1': # [D, F]
-            return partition_fn(kernel_init, ('data', None))
+            return nnx.with_partitioning(kernel_init, ('data', 'model'))
         case 'mlp_fc2': # [F, D]
-            return partition_fn(kernel_init, (None, 'data'))
+            return nnx.with_partitioning(kernel_init, ('model', 'data'))
         case _:
             raise ValueError(f'unrecognized layer type: {layer_type}')
 

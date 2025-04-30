@@ -14,17 +14,16 @@ pad_eval: false
 wandb_project: 'picodo-bs'
 wandb_mode: 'online'
 run_name: null
-shard_data: true
+num_tp_devices: 1 # optional tensor parallelism
 
 model:
-  k: 4
+  k: 6
   D: ${mul:128, ${model.k}} # model/embed/qkv dim
   F: ${mul:4, ${model.D}} # FF inner dimension = 4 x embed dim.
   H: ${mul:2, ${model.k}} # num. attention heads, each with dim. D/H = 64
-  N: 6 # num. block layers
+  N: 12 # num. block layers
   L: 512 # context/sequence length
   V: 50257 # vocab size -> must match dataset tokenizer!
-  shard: true
   dtype: null
 
 opt:

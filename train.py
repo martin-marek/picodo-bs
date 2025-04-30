@@ -8,7 +8,7 @@ import optimizer as optimizer_lib
 from functools import partial
 from flax import nnx
 from tqdm.auto import tqdm
-from jax.experimental import mesh_utils
+from jax.experimental.mesh_utils import create_device_mesh
 from jax.sharding import Mesh, NamedSharding
 from jax.sharding import PartitionSpec as P
 from omegaconf.dictconfig import DictConfig
@@ -49,7 +49,9 @@ def train_and_evaluate(c: DictConfig):
     # sharding
     # all devices are aligned across a single mesh axis called 'data'
     # we use FSDP to shard data, model, and optimzier parameters across this axis
-    mesh = Mesh(mesh_utils.create_device_mesh((jax.device_count(),)), ('data',))
+    num_fsdp_devices = jax.device_count() // c.num_tp_devices
+    mesh = Mesh(create_device_mesh((num_fsdp_devices, c.num_tp_devices)), ('data', 'model'))
+    print(f'Created mesh with shape {mesh.shape}')
 
     # model
     model = model_lib.create_sharded_model(c.model, mesh, key_model)
@@ -65,7 +67,7 @@ def train_and_evaluate(c: DictConfig):
     # dataset
     if (c.num_tokens_train is None) and (c.tokens_params_ratio is not None):
         c.num_tokens_train = c.tokens_params_ratio * (n_params['n_param_nonembed'] + n_params['n_param_embed'])
-    ds_train, ds_valid = data.load_ds(key_dataset, c.ds_path, c.model.L+1, c.opt.microbatch_size, c.batch_size_valid, c.num_tokens_valid, c.num_tokens_train, c.shard_data, mesh)
+    ds_train, ds_valid = data.load_ds(key_dataset, mesh, c.ds_path, c.model.L+1, c.opt.microbatch_size, c.batch_size_valid, c.num_tokens_valid, c.num_tokens_train)
     if (c.num_tokens_train is None): c.num_tokens_train = ds_train.size
 
     # optimizer
