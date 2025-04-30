@@ -46,8 +46,8 @@ class MultiHeadAttention(nnx.Module):
     qkv_proj_init = fsdp_init('attn_qkv_proj', c.fsdp_enabled)
     out_proj_init = fsdp_init('attn_out_proj', c.fsdp_enabled)
     self.head_dim = c.D // c.H
-    self.qkv_proj = nnx.Einsum('bTD,SNDH->SbTNH', (3, c.H, c.D, c.D//c.H), kernel_init=qkv_proj_init, dtype=c.dtype, rngs=rngs)
-    self.out_proj = nnx.Einsum('bTNH,NHD->bTD', (c.H, c.D//c.H, c.D),  kernel_init=out_proj_init, dtype=c.dtype, rngs=rngs)
+    self.qkv_proj = nnx.Einsum('bTD,SNDH->SbNTH', (3, c.H, c.D, c.D//c.H), kernel_init=qkv_proj_init, dtype=c.dtype, rngs=rngs)
+    self.out_proj = nnx.Einsum('bNTH,NHD->bTD', (c.H, c.D//c.H, c.D),  kernel_init=out_proj_init, dtype=c.dtype, rngs=rngs)
     self.query_norm = nnx.RMSNorm(self.head_dim, use_scale=False, dtype=c.dtype, rngs=rngs)
     self.key_norm = nnx.RMSNorm(self.head_dim, use_scale=False, dtype=c.dtype, rngs=rngs)
     self.query_scaling = (c.D/c.H)**-0.5
@@ -57,7 +57,7 @@ class MultiHeadAttention(nnx.Module):
     B, L, D = x.shape
 
     # input projection
-    q, k, v = self.qkv_proj(x) # [B, L, H, D/H]
+    q, k, v = self.qkv_proj(x) # [B, H, L, D/H]
 
     # qk-norm
     q = self.query_norm(q)
@@ -69,17 +69,8 @@ class MultiHeadAttention(nnx.Module):
     k = apply_rope(k, position[None], self.head_dim)
     q *= self.query_scaling
 
-    # attention logits
-    att = jnp.einsum('bqhd,bkhd->bhqk', q, k).astype(jnp.float32) # [B, H, L, L]
-
-    # causal mask
-    mask = jnp.tril(jnp.ones([B, 1, L, L], dtype=jnp.bool_))
-    _NEG_INF = jnp.finfo(att.dtype).min
-    att = jnp.where(mask, att, _NEG_INF)
-
-    # attended values
-    att = jax.nn.softmax(att, axis=-1).astype(self.dtype)
-    out = jnp.einsum('bhqk,bkhd->bqhd', att, v) # [B, L, H, D/H]
+    # attention
+    out = jax.nn.dot_product_attention(q, k, v, is_causal=True) # [B, H, L, D/H]
 
     # output projection followed by contraction back to original dims
     out = self.out_proj(out) # [B, L, D]
