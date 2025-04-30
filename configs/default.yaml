@@ -8,7 +8,7 @@ ds_path: null
 tokens_params_ratio: 20 # chinchilla scaling
 num_tokens_train: null
 num_tokens_valid: 10_000_000
-batch_size_valid: 32
+batch_size_valid: 4
 num_eval_steps: 1
 pad_eval: false
 wandb_project: 'picodo-bs'
@@ -30,8 +30,8 @@ model:
 
 opt:
   optimizer: 'sgd'
-  batch_size: 16
-  max_microbatch_size: 16
+  batch_size: 4
+  max_microbatch_size: 4
   microbatch_size: ${min:${opt.batch_size}, ${opt.max_microbatch_size}} 
   grad_acc_steps: ${floordiv:${opt.batch_size}, ${opt.microbatch_size}}
   peak_lr: null
