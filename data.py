@@ -2,15 +2,17 @@ import os
 import jax
 import numpy as np
 import jax.numpy as jnp
+from jax.sharding import Mesh, NamedSharding
 
 
-def load_ds(ds_path, seq_len, bs_train, bs_valid, n_tokens_valid, n_tokens_train=None, seed=0):
+def load_ds(key, ds_path, seq_len, bs_train, bs_valid, n_tokens_valid, n_tokens_train=None, shard=False, mesh=None):
 
-    # read dataset
+    # get dataset size
+    print('getting dataset size...')
     ds_path = os.path.expanduser(ds_path)
     data = np.memmap(ds_path, dtype=np.uint16, mode='r')
     n_tokens_dataset = len(data)
-    n_seq_dataset = n_tokens_dataset // (seq_len+1)
+    n_seq_dataset = n_tokens_dataset // seq_len
 
     # if n_tokens_train is None, use full dataset
     if n_tokens_train is not None: assert n_tokens_train + n_tokens_valid <= n_tokens_dataset
@@ -21,21 +23,27 @@ def load_ds(ds_path, seq_len, bs_train, bs_valid, n_tokens_valid, n_tokens_train
     n_batch_valid = n_tokens_valid // (bs_valid * seq_len)
     n_seq_train = n_batch_train * bs_train
     n_seq_valid = n_batch_valid * bs_valid
+    n_token_read = (n_seq_train+n_seq_valid) * seq_len
 
-    # sample sequence order
-    rng = np.random.default_rng(int(seed))
-    seq_idx = rng.choice(n_seq_dataset, size=(n_seq_train+n_seq_valid), replace=False)
-    seq_idx_train = seq_idx[:n_seq_train].reshape([n_batch_train, bs_train])
-    seq_idx_valid = seq_idx[n_seq_train:].reshape([n_batch_valid, bs_valid])
+    # read data
+    print('reading data...')
+    data = np.memmap(ds_path, dtype=np.uint16, mode='r')
+    data = jnp.array(data[:n_token_read])
 
-    # define sequence loader
-    # using np.memmap for each batch to avoid memory leak
-    def get_batch(seq_idxs): # [B]
-        data = np.memmap(ds_path, dtype=np.uint16, shape=[n_seq_dataset, seq_len+1], mode='r')
-        batch = data[seq_idxs] # [B, L+1]
-        return batch
+    # shuffle data
+    print('shuffling data...')
+    data = data.reshape([-1, seq_len])
+    data = jax.random.permutation(key, data, axis=0)
 
-    return get_batch, seq_idx_train, seq_idx_valid
+    # split data
+    print('splitting data...')
+    data_train = data[:n_seq_train].reshape([n_batch_train, bs_train, seq_len])
+    data_valid = data[n_seq_train:].reshape([n_batch_valid, bs_train, seq_len])
+
+    # TODO
+    # optionally shard dataset across devices
+
+    return data_train, data_valid
 
 
 def pad_mask(batch, eos_token_id=1):

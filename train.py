@@ -44,7 +44,7 @@ def train_and_evaluate(c: DictConfig):
 
     # get model and dataset rng seed
     key = jax.random.key(c.seed)
-    seed_model, seed_dataset = jax.random.randint(key, [2], 0, 1_000_000)
+    key_model, key_dataset = jax.random.split(key)
 
     # sharding
     # all devices are aligned across a single mesh axis called 'data'
@@ -52,7 +52,7 @@ def train_and_evaluate(c: DictConfig):
     mesh = Mesh(mesh_utils.create_device_mesh((jax.device_count(),)), ('data',))
 
     # model
-    model = model_lib.create_sharded_model(c.model, mesh, seed_model)
+    model = model_lib.create_sharded_model(c.model, mesh, key_model)
     model_graphdef, model_state = nnx.split(model)
     n_params = {
         'n_param_nonembed': 12 * c.model.N * c.model.D**2,
@@ -65,12 +65,11 @@ def train_and_evaluate(c: DictConfig):
     # dataset
     if (c.num_tokens_train is None) and (c.tokens_params_ratio is not None):
         c.num_tokens_train = c.tokens_params_ratio * (n_params['n_param_nonembed'] + n_params['n_param_embed'])
-    get_batch, idx_train, idx_valid = data.load_ds(c.ds_path, c.model.L, c.opt.microbatch_size, c.batch_size_valid, c.num_tokens_valid, c.num_tokens_train, seed_dataset)
-    with mesh: ds_valid = jax.device_put(jnp.stack(list(map(get_batch, idx_valid))), NamedSharding(mesh, P(None, 'data', None))) # [N, B, L]
-    if (c.num_tokens_train is None): c.num_tokens_train = len(idx_train) * c.opt.microbatch_size
+    ds_train, ds_valid = data.load_ds(key_dataset, c.ds_path, c.model.L+1, c.opt.microbatch_size, c.batch_size_valid, c.num_tokens_valid, c.num_tokens_train)
+    if (c.num_tokens_train is None): c.num_tokens_train = ds_train.size
 
     # optimizer
-    num_microbatch_steps = len(idx_train)
+    num_microbatch_steps = len(ds_train)
     tokens_per_microbatch = c.opt.microbatch_size * c.model.L
     tx = optimizer_lib.get_optimizer(c.opt, model_state, num_microbatch_steps, tokens_per_microbatch)
     optimizer = nnx.Optimizer(model, tx)
@@ -86,12 +85,11 @@ def train_and_evaluate(c: DictConfig):
     pending_eval_metrics = None
     opt_graphdef, opt_state = nnx.split(optimizer)
     with mesh:
-        pbar = idx_train
+        pbar = ds_train
         if jax.process_index() == 0: pbar = tqdm(pbar)
-        for step, seq_idx in enumerate(pbar):
+        for step, batch in enumerate(pbar):
 
             # training step
-            batch = jax.device_put(get_batch(seq_idx), NamedSharding(mesh, P('data', None))) # [B, L]
             opt_state, train_metrics = train_step(opt_graphdef, opt_state, batch)
             train_metrics |= {'train_tokens_seen': (step+1)*tokens_per_microbatch}
 

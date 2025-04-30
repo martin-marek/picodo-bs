@@ -110,16 +110,17 @@ def fsdp_init(layer_type: str, fsdp_enabled: bool):
             raise ValueError(f'unrecognized layer type: {layer_type}')
 
 
-def create_sharded_model(c: DictConfig, mesh: Mesh, seed: int):
+def create_sharded_model(c: DictConfig, mesh: Mesh, key):
     """
     initialize sharded model without putting it on a single device
     https://flax.readthedocs.io/en/latest/guides/flax_gspmd.html
     """
+    seed = int(jax.random.randint(key, [1], 0, 1_000_000)[0])
 
     @nnx.jit
     def initialize_sharded_model():
         rngs = nnx.Rngs(seed)
-        model = TransformerDecoder(c, rngs=nnx.Rngs(int(seed))) # unsharded at this moment
+        model = TransformerDecoder(c, rngs=rngs) # unsharded at this moment
         state = nnx.state(model) # the model's state, a pure pytree
         pspecs = nnx.get_partition_spec(state) # get annotations from state
         sharded_state = jax.lax.with_sharding_constraint(state, pspecs)
