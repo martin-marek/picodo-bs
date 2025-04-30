@@ -50,7 +50,6 @@ class MultiHeadAttention(nnx.Module):
     self.out_proj = nnx.Einsum('bNTH,NHD->bTD', (c.H, c.D//c.H, c.D),  kernel_init=out_proj_init, dtype=c.dtype, rngs=rngs)
     self.query_norm = nnx.RMSNorm(self.head_dim, use_scale=False, dtype=c.dtype, rngs=rngs)
     self.key_norm = nnx.RMSNorm(self.head_dim, use_scale=False, dtype=c.dtype, rngs=rngs)
-    self.query_scaling = (c.D/c.H)**-0.5
     self.dtype = c.dtype
 
   def __call__(self, x): # [B, L, D]
@@ -67,7 +66,6 @@ class MultiHeadAttention(nnx.Module):
     position = jnp.arange(L)
     q = apply_rope(q, position[None], self.head_dim)
     k = apply_rope(k, position[None], self.head_dim)
-    q *= self.query_scaling
 
     # attention
     out = jax.nn.dot_product_attention(q, k, v, is_causal=True) # [B, H, L, D/H]
