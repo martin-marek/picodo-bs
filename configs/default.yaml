@@ -14,6 +14,7 @@ pad_eval: false
 wandb_project: 'picodo-bs'
 wandb_mode: 'online'
 run_name: null
+shard_data: true
 
 model:
   k: 4
@@ -24,7 +25,7 @@ model:
   L: 512 # context/sequence length
   V: 50257 # vocab size -> must match dataset tokenizer!
   tie_token_embed: false
-  fsdp_enabled: true
+  shard: true
   dtype: null
 
 opt:

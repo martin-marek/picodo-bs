@@ -8,7 +8,7 @@ from rope import apply_rope
 
 class TransformerDecoder(nnx.Module):
     def __init__(self, c: DictConfig, rngs: nnx.Rngs):
-        embed_init = fsdp_init('embedding', c.fsdp_enabled)
+        embed_init = sharded_init('embedding', c.shard)
         self.token_embed_in = nnx.Embed(num_embeddings=c.V, features=c.D, embedding_init=embed_init, rngs=rngs)
         self.token_embed_out = self.token_embed_in if c.tie_token_embed else nnx.Embed(num_embeddings=c.V, features=c.D, embedding_init=embed_init, rngs=rngs)
         self.blocks = [TransformerBlock(c, rngs) for _ in range(c.N)]
@@ -43,8 +43,8 @@ class TransformerBlock(nnx.Module):
 class MultiHeadAttention(nnx.Module):
   """Causal attention layer."""
   def __init__(self, c: DictConfig, rngs: nnx.Rngs):
-    qkv_proj_init = fsdp_init('attn_qkv_proj', c.fsdp_enabled)
-    out_proj_init = fsdp_init('attn_out_proj', c.fsdp_enabled)
+    qkv_proj_init = sharded_init('attn_qkv_proj', c.shard)
+    out_proj_init = sharded_init('attn_out_proj', c.shard)
     self.head_dim = c.D // c.H
     self.qkv_proj = nnx.Einsum('bTD,SNDH->SbNTH', (3, c.H, c.D, c.D//c.H), kernel_init=qkv_proj_init, dtype=c.dtype, rngs=rngs)
     self.out_proj = nnx.Einsum('bNTH,NHD->bTD', (c.H, c.D//c.H, c.D),  kernel_init=out_proj_init, dtype=c.dtype, rngs=rngs)
@@ -78,8 +78,8 @@ class MultiHeadAttention(nnx.Module):
 class Mlp(nnx.Module):
     """Multilayer perceptron."""
     def __init__(self, c: DictConfig, rngs: nnx.Rngs):
-        fc1_init = fsdp_init('mlp_fc1', c.fsdp_enabled)
-        fc2_init = fsdp_init('mlp_fc2', c.fsdp_enabled)
+        fc1_init = sharded_init('mlp_fc1', c.shard)
+        fc2_init = sharded_init('mlp_fc2', c.shard)
         self.fc1 = nnx.Linear(in_features=c.D, out_features=c.F, kernel_init=fc1_init, use_bias=False, dtype=c.dtype, rngs=rngs)
         self.fc2 = nnx.Linear(in_features=c.F, out_features=c.D, kernel_init=fc2_init, use_bias=False, dtype=c.dtype, rngs=rngs)
         
@@ -88,9 +88,9 @@ class Mlp(nnx.Module):
         return self.fc2(h) # [B, L, D]
 
 
-def fsdp_init(layer_type: str, fsdp_enabled: bool):
-    """Initialize weights with optional FSDP partitioning."""
-    partition_fn = nnx.with_partitioning if fsdp_enabled else lambda x, _: x
+def sharded_init(layer_type: str, shard: bool):
+    """Initialize weights with optional sharding."""
+    partition_fn = nnx.with_partitioning if shard else lambda x, _: x
     kernel_init = jax.nn.initializers.xavier_uniform()
     embed_init = jax.nn.initializers.variance_scaling(1.0, 'fan_in', 'normal', out_axis=0)
     match layer_type:

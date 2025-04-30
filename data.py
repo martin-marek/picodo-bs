@@ -2,6 +2,7 @@ import os
 import jax
 import numpy as np
 import jax.numpy as jnp
+from jax.sharding import PartitionSpec as P
 from jax.sharding import Mesh, NamedSharding
 
 
@@ -32,7 +33,7 @@ def load_ds(key, ds_path, seq_len, bs_train, bs_valid, n_tokens_valid, n_tokens_
 
     # shuffle data
     print('shuffling data...')
-    data = data.reshape([-1, seq_len])
+    data = data.reshape([n_seq_train+n_seq_valid, seq_len])
     data = jax.random.permutation(key, data, axis=0)
 
     # split data
@@ -40,9 +41,14 @@ def load_ds(key, ds_path, seq_len, bs_train, bs_valid, n_tokens_valid, n_tokens_
     data_train = data[:n_seq_train].reshape([n_batch_train, bs_train, seq_len])
     data_valid = data[n_seq_train:].reshape([n_batch_valid, bs_train, seq_len])
 
-    # TODO
     # optionally shard dataset across devices
-
+    if shard:
+        assert mesh is not None
+        with mesh:
+            sharding = NamedSharding(mesh, P(None, 'data', None)) # [N, B, L]
+            data_train = jax.device_put(data_train, sharding) # [N, B, L]
+            data_valid = jax.device_put(data_valid, sharding) # [N, B, L]
+    
     return data_train, data_valid
 
 
