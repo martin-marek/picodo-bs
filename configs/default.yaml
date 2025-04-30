@@ -24,7 +24,6 @@ model:
   N: 6 # num. block layers
   L: 512 # context/sequence length
   V: 50257 # vocab size -> must match dataset tokenizer!
-  tie_token_embed: false
   shard: true
   dtype: null
 

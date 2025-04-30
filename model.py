@@ -8,20 +8,22 @@ from rope import apply_rope
 
 class TransformerDecoder(nnx.Module):
     def __init__(self, c: DictConfig, rngs: nnx.Rngs):
-        embed_init = sharded_init('embedding', c.shard)
-        self.token_embed_in = nnx.Embed(num_embeddings=c.V, features=c.D, embedding_init=embed_init, rngs=rngs)
-        self.token_embed_out = self.token_embed_in if c.tie_token_embed else nnx.Embed(num_embeddings=c.V, features=c.D, embedding_init=embed_init, rngs=rngs)
+        embed_in_init = sharded_init('embedding_in', c.shard)
+        embed_out_init = sharded_init('embedding_out', c.shard)
+        self.token_embed_in = nnx.Embed(num_embeddings=c.V, features=c.D, embedding_init=embed_in_init, rngs=rngs)
+        self.token_embed_out = nnx.Embed(num_embeddings=c.V, features=c.D, embedding_init=embed_out_init, rngs=rngs)
         self.blocks = [TransformerBlock(c, rngs) for _ in range(c.N)]
         self.out_ln = nnx.RMSNorm(c.D, use_scale=False, dtype=c.dtype, rngs=rngs)
         
     def __call__(self, x): # [B, S]
+
         # token embedding
         h = self.token_embed_in(x) # [B, L, D]
         
         # transformer blocks
         for block in self.blocks:
             h = block(h)
-            
+
         # project back to vocabulary
         h = self.out_ln(h)
         logits = self.token_embed_out.attend(h.astype(jnp.float32)) # [B, L, V]
@@ -94,8 +96,10 @@ def sharded_init(layer_type: str, shard: bool):
     kernel_init = jax.nn.initializers.xavier_uniform()
     embed_init = jax.nn.initializers.variance_scaling(1.0, 'fan_in', 'normal', out_axis=0)
     match layer_type:
-        case 'embedding': # [V, D]
+        case 'embedding_in': # [V, D]
             return partition_fn(embed_init, (None, 'data'))
+        case 'embedding_out': # [V, D]
+            return partition_fn(embed_init, ('data', None))
         case 'attn_qkv_proj': # [3, H, D, D/H]
             return partition_fn(kernel_init, (None, None, 'data', None))
         case 'attn_out_proj': # [H, D/H, D]
