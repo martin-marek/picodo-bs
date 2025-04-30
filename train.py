@@ -85,12 +85,12 @@ def train_and_evaluate(c: DictConfig):
     pending_eval_metrics = None
     opt_graphdef, opt_state = nnx.split(optimizer)
     with mesh:
-        pbar = ds_train
+        pbar = range(len(ds_train))
         if jax.process_index() == 0: pbar = tqdm(pbar)
-        for step, batch in enumerate(pbar):
-
+        for step in pbar:
+            
             # training step
-            opt_state, train_metrics = train_step(opt_graphdef, opt_state, batch)
+            opt_state, train_metrics = train_step(opt_graphdef, opt_state, ds_train[step])
             train_metrics |= {'train_tokens_seen': (step+1)*tokens_per_microbatch}
 
             # async logging
