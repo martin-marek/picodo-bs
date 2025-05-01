@@ -7,8 +7,6 @@ num_tokens_train: 10_000_000_000
 
 model:
   D: 1600  # model/embed/qkv dim
-  F: 6400  # FF inner dimension (4 * D)
-  H: 25    # num. attention heads (1600 / 25 = 64 dim/head)
-  N: 48    # num. block layers
-  L: 1024  # context/sequence length
+  L: 48    # num. block layers
+  T: 1024  # context/sequence length
   V: 50257 # vocab size

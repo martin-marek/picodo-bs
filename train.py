@@ -57,7 +57,7 @@ def train_and_evaluate(c: DictConfig):
     model = model_lib.create_sharded_model(c.model, mesh, key_model)
     model_graphdef, model_state = nnx.split(model)
     n_params = {
-        'n_param_nonembed': 12 * c.model.N * c.model.D**2,
+        'n_param_nonembed': 12 * c.model.L * c.model.D**2,
         'n_param_embed': c.model.D * c.model.V,
         'n_param_total': utils.get_num_model_params(model),
     }
@@ -67,12 +67,12 @@ def train_and_evaluate(c: DictConfig):
     # dataset
     if (c.num_tokens_train is None) and (c.tokens_params_ratio is not None):
         c.num_tokens_train = c.tokens_params_ratio * (n_params['n_param_nonembed'] + n_params['n_param_embed'])
-    ds_train, ds_valid = data.load_ds(key_dataset, mesh, c.ds_path, c.model.L+1, c.opt.microbatch_size, c.batch_size_valid, c.num_tokens_valid, c.num_tokens_train)
+    ds_train, ds_valid = data.load_ds(key_dataset, mesh, c.ds_path, c.model.T+1, c.opt.microbatch_size, c.batch_size_valid, c.num_tokens_valid, c.num_tokens_train)
     if (c.num_tokens_train is None): c.num_tokens_train = ds_train.size
 
     # optimizer
     num_microbatch_steps = len(ds_train)
-    tokens_per_microbatch = c.opt.microbatch_size * c.model.L
+    tokens_per_microbatch = c.opt.microbatch_size * c.model.T
     tx = optimizer_lib.get_optimizer(c.opt, model_state, num_microbatch_steps, tokens_per_microbatch)
     optimizer = nnx.Optimizer(model, tx)
 

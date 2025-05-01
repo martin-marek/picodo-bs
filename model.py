@@ -18,7 +18,7 @@ class TransformerDecoder(nnx.Module):
     def __call__(self, x): # [B, S]
 
         # token embedding
-        h = self.token_embed_in(x) # [B, L, D]
+        h = self.token_embed_in(x) # [B, T, D]
         
         # transformer blocks
         for block in self.blocks:
@@ -26,7 +26,7 @@ class TransformerDecoder(nnx.Module):
 
         # project back to vocabulary
         h = self.out_ln(h)
-        logits = self.token_embed_out.attend(h.astype(jnp.float32)) # [B, L, V]
+        logits = self.token_embed_out.attend(h.astype(jnp.float32)) # [B, T, V]
         return logits
 
 
@@ -37,7 +37,7 @@ class TransformerBlock(nnx.Module):
         self.attn = MultiHeadAttention(c, rngs=rngs)
         self.mlp = Mlp(c, rngs)
         
-    def __call__(self, x): # [B, L, D]
+    def __call__(self, x): # [B, T, D]
         x = x + self.attn(self.ln1(x)) # attention block
         return x + self.mlp(self.ln2(x)) # MLP block
 
@@ -47,33 +47,32 @@ class MultiHeadAttention(nnx.Module):
   def __init__(self, c: DictConfig, rngs: nnx.Rngs):
     qkv_proj_init = sharded_init('attn_qkv_proj')
     out_proj_init = sharded_init('attn_out_proj')
-    self.head_dim = c.D // c.H
-    self.qkv_proj = nnx.Einsum('bTD,SNDH->SbNTH', (3, c.H, c.D, c.D//c.H), kernel_init=qkv_proj_init, dtype=c.dtype, rngs=rngs)
-    self.out_proj = nnx.Einsum('bNTH,NHD->bTD', (c.H, c.D//c.H, c.D),  kernel_init=out_proj_init, dtype=c.dtype, rngs=rngs)
-    self.query_norm = nnx.RMSNorm(self.head_dim, use_scale=False, dtype=c.dtype, rngs=rngs)
-    self.key_norm = nnx.RMSNorm(self.head_dim, use_scale=False, dtype=c.dtype, rngs=rngs)
+    self.qkv_proj = nnx.Einsum('bTD,SNDH->SbTNH', (3, c.N, c.D, c.H), kernel_init=qkv_proj_init, dtype=c.dtype, rngs=rngs)
+    self.out_proj = nnx.Einsum('bTNH,NHD->bTD', (c.N, c.H, c.D),  kernel_init=out_proj_init, dtype=c.dtype, rngs=rngs)
+    self.query_norm = nnx.RMSNorm(c.H, use_scale=False, dtype=c.dtype, rngs=rngs)
+    self.key_norm = nnx.RMSNorm(c.H, use_scale=False, dtype=c.dtype, rngs=rngs)
     self.dtype = c.dtype
 
-  def __call__(self, x): # [B, L, D]
-    B, L, D = x.shape
+  def __call__(self, x): # [B, T, D]
+    B, T, D = x.shape
 
     # input projection
-    q, k, v = self.qkv_proj(x) # [B, H, L, D/H]
+    q, k, v = self.qkv_proj(x) # [B, T, N, H]
 
     # qk-norm
     q = self.query_norm(q)
     k = self.key_norm(k)
 
     # position embedding
-    position = jnp.arange(L)
-    q = apply_rope(q, position[None], self.head_dim)
-    k = apply_rope(k, position[None], self.head_dim)
+    position = jnp.arange(T)
+    q = apply_rope(q, position[None])
+    k = apply_rope(k, position[None])
 
     # attention
-    out = jax.nn.dot_product_attention(q, k, v, is_causal=True) # [B, H, L, D/H]
+    out = jax.nn.dot_product_attention(q, k, v, is_causal=True) # [B, T, N, H]
 
     # output projection followed by contraction back to original dims
-    out = self.out_proj(out) # [B, L, D]
+    out = self.out_proj(out) # [B, T, D]
     return out
 
 
@@ -85,9 +84,9 @@ class Mlp(nnx.Module):
         self.fc1 = nnx.Linear(in_features=c.D, out_features=c.F, kernel_init=fc1_init, use_bias=False, dtype=c.dtype, rngs=rngs)
         self.fc2 = nnx.Linear(in_features=c.F, out_features=c.D, kernel_init=fc2_init, use_bias=False, dtype=c.dtype, rngs=rngs)
         
-    def __call__(self, x): # [B, L, D]
-        h = jax.nn.gelu(self.fc1(x)) # [B, L, F]
-        return self.fc2(h) # [B, L, D]
+    def __call__(self, x): # [B, T, D]
+        h = jax.nn.gelu(self.fc1(x)) # [B, T, F]
+        return self.fc2(h) # [B, T, D]
 
 
 def sharded_init(layer_type: str):
@@ -99,9 +98,9 @@ def sharded_init(layer_type: str):
             return nnx.with_partitioning(embed_init, ('model', 'data'))
         case 'embedding_out': # [V, D]
             return nnx.with_partitioning(embed_init, ('model', 'data'))
-        case 'attn_qkv_proj': # [3, H, D, D/H]
+        case 'attn_qkv_proj': # [3, N, D, H]
             return nnx.with_partitioning(kernel_init, (None, 'model', 'data', None))
-        case 'attn_out_proj': # [H, D/H, D]
+        case 'attn_out_proj': # [N, H, D]
             return nnx.with_partitioning(kernel_init, ('model', None, 'data'))
         case 'mlp_fc1': # [D, F]
             return nnx.with_partitioning(kernel_init, ('data', 'model'))

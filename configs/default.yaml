@@ -17,12 +17,12 @@ run_name: null
 num_tp_devices: 1 # optional tensor parallelism
 
 model:
-  k: 6
-  D: ${mul:128, ${model.k}} # model/embed/qkv dim
+  D: 768 # model/embed/qkv dim
+  L: 12 # num. block layers
+  H: 64 # head dimension
   F: ${mul:4, ${model.D}} # FF inner dimension = 4 x embed dim.
-  H: ${mul:2, ${model.k}} # num. attention heads, each with dim. D/H = 64
-  N: 12 # num. block layers
-  L: 512 # context/sequence length
+  N: ${floordiv:${model.D}, ${model.H}} # num. attention heads
+  T: 1024 # context/sequence length
   V: 50257 # vocab size -> must match dataset tokenizer!
   dtype: null
 

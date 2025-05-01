@@ -2,21 +2,24 @@ defaults:
   - default
   - _self_
 
-batch_size_valid: 1
-num_tokens_train: 100_000
+num_tokens_train: 10_000
 num_tokens_valid: 2_048
-num_eval_steps: 10
+num_eval_steps: 5
 ds_path: '~/datasets/fineweb_gpt2_10B.bin'
 wandb_mode: 'offline'
+num_tp_devices: 1
+
 
 model:
-  k: 2
-  N: 4
+  D: 256
+  L: 4
+  T: 128
   V: 50257
 
 opt:
   optimizer: 'adamw'
+  batch_size: 8
+  max_microbatch_size: 8
   b1: 0.9
   t2: 1_000_000
-  batch_size: 1
   peak_lr: 0.001

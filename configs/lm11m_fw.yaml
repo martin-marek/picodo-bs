@@ -5,7 +5,7 @@ defaults:
 ds_path: '~/datasets/fineweb_gpt2_10B.bin'
 
 model:
-  k: 3
-  N: 6
-  L: 512
+  D: 384
+  L: 6
+  T: 512
   V: 50257
