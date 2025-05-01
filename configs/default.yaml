@@ -8,7 +8,6 @@ ds_path: null
 tokens_params_ratio: 20 # chinchilla scaling
 num_tokens_train: null
 num_tokens_valid: 10_000_000
-batch_size_valid: ${opt.max_microbatch_size}
 num_eval_steps: 1
 pad_eval: false
 wandb_project: 'picodo-bs'
