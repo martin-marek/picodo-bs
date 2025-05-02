@@ -5,6 +5,7 @@ from pathlib import Path
 from tqdm.auto import tqdm
 from huggingface_hub import hf_hub_download
 from huggingface_hub.utils import disable_progress_bars; disable_progress_bars()
+from typing import Optional, Literal
 
 
 def load_data_shard(file):
@@ -21,22 +22,35 @@ def load_data_shard(file):
     return tokens
 
 
-def download_dataset(num_chunks=103):
-    # download dataset, save it as a np.memmap binary file
-    # 103 chunks -> full fineweb10B; each chunk is 100M tokens
+def download_dataset(
+        dataset: Literal['fineweb', 'finewebedu'] = 'fineweb',
+        num_chunks: Optional[int] = None,
+    ):
+    """download dataset, save it as a np.memmap binary file"""
+
+    # get num. chunks
+    # by default, download all chunnks (10B tokens)
+    # each chunk is 100M tokens
+    if num_chunks is None:
+        if dataset == 'fineweb': num_chunks = 103
+        if dataset == 'finewebedu': num_chunks = 99
+
+    # load chunks into memory
+    print('downloading...')
     shards = []
     for i in tqdm(range(1, num_chunks+1)):
-        shard_path = hf_hub_download(repo_id="kjj0/fineweb10B-gpt2", filename=f'fineweb_train_{i:06}.bin', repo_type="dataset")
+        shard_path = hf_hub_download(repo_id=f'kjj0/{dataset}10B-gpt2', filename=f'{dataset}_train_{i:06}.bin', repo_type="dataset")
         shards += [load_data_shard(shard_path)]
 
     # save to disk
+    print('saving...')
     out_dir = os.path.expanduser('~/datasets')
-    out_path = f'{out_dir}/fineweb_gpt2.bin'
+    out_path = f'{out_dir}/{dataset}_gpt2.bin'
     os.makedirs(out_dir, exist_ok=True)
     n_tokens = sum(map(len, shards))
     out = np.memmap(out_path, dtype=np.uint16, mode='w+', shape=[n_tokens])
     i = 0
-    for shard in shards:
+    for shard in tqdm(shards):
         out[i:i+len(shard)] = shard
         i += len(shard)
     out.flush()
