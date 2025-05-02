@@ -1,0 +1,11 @@
+defaults:
+  - default
+  - _self_
+
+ds_path: '~/datasets/finewebedu_gpt2.bin'
+
+model:
+  D: 384
+  L: 6
+  T: 512
+  V: 50257
