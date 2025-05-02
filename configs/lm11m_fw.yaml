@@ -2,7 +2,7 @@ defaults:
   - default
   - _self_
 
-ds_path: '~/datasets/fineweb_gpt2_10B.bin'
+ds_path: '~/datasets/fineweb_gpt2.bin'
 
 model:
   D: 384

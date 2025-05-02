@@ -30,7 +30,7 @@ for i in tqdm(range(1, num_chunks+1)):
 
 # save to disk
 out_dir = os.path.expanduser('~/datasets')
-out_path = f'{out_dir}/fineweb_gpt2_10B.bin'
+out_path = f'{out_dir}/fineweb_gpt2.bin'
 os.makedirs(out_dir, exist_ok=True)
 n_tokens = sum(map(len, shards))
 out = np.memmap(out_path, dtype=np.uint16, mode='w+', shape=[n_tokens])
