@@ -59,7 +59,7 @@ def train_and_evaluate(c: DictConfig):
     n_params = {
         'n_param_nonembed': 12 * c.model.L * c.model.D**2,
         'n_param_embed': c.model.D * c.model.V,
-        'n_param_total': utils.get_num_model_params(model),
+        'n_param_actual': utils.get_num_model_params(model),
     }
     for k, v in n_params.items():
         print(f'{k}={v:_}')
