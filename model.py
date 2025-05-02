@@ -12,7 +12,7 @@ class TransformerDecoder(nnx.Module):
         embed_out_init = sharded_init('embedding_out')
         self.token_embed_in = nnx.Embed(num_embeddings=c.V, features=c.D, embedding_init=embed_in_init, rngs=rngs)
         self.token_embed_out = nnx.Embed(num_embeddings=c.V, features=c.D, embedding_init=embed_out_init, rngs=rngs)
-        self.blocks = [TransformerBlock(c, rngs) for _ in range(c.N)]
+        self.blocks = [TransformerBlock(c, rngs) for _ in range(c.L)]
         self.out_ln = nnx.RMSNorm(c.D, use_scale=False, dtype=c.dtype, rngs=rngs)
         
     def __call__(self, x): # [B, S]
