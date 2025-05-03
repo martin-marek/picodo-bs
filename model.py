@@ -141,17 +141,17 @@ def sharded_init(layer_type: str):
     embed_init = jax.nn.initializers.variance_scaling(1.0, 'fan_in', 'normal', out_axis=0)
     match layer_type:
         case 'embedding_in': # [V, D]
-            return nnx.with_partitioning(embed_init, ('model', 'data'))
+            return nnx.with_partitioning(embed_init, (None, 'data'))
         case 'embedding_out': # [V, D]
-            return nnx.with_partitioning(embed_init, ('model', 'data'))
+            return nnx.with_partitioning(embed_init, (None, 'data'))
         case 'attn_qkv_proj': # [3, N, D, H]
-            return nnx.with_partitioning(kernel_init, (None, 'model', 'data', None))
+            return nnx.with_partitioning(kernel_init, (None, None, 'data', None))
         case 'attn_out_proj': # [N, H, D]
-            return nnx.with_partitioning(kernel_init, ('model', None, 'data'))
+            return nnx.with_partitioning(kernel_init, (None, None, 'data'))
         case 'mlp_fc1': # [D, F]
-            return nnx.with_partitioning(kernel_init, ('data', 'model'))
+            return nnx.with_partitioning(kernel_init, ('data', None))
         case 'mlp_fc2': # [F, D]
-            return nnx.with_partitioning(kernel_init, ('model', 'data'))
+            return nnx.with_partitioning(kernel_init, (None, 'data'))
         case _:
             raise ValueError(f'unrecognized layer type: {layer_type}')
 

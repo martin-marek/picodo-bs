@@ -49,9 +49,7 @@ def train_and_evaluate(c: DictConfig):
     # sharding
     # all devices are aligned across a single mesh axis called 'data'
     # we use FSDP to shard data, model, and optimzier parameters across this axis
-    num_fsdp_devices = jax.device_count() // c.num_tp_devices
-    mesh = Mesh(create_device_mesh((num_fsdp_devices, c.num_tp_devices)), ('data', 'model'))
-    print('sharding mesh:', ', '.join(f'{k}={v}' for k, v in mesh.shape.items()))
+    mesh = Mesh(create_device_mesh((jax.device_count(),)), ('data',))
 
     # model
     model = model_lib.create_sharded_model(c.model, mesh, key_model)
@@ -78,7 +76,7 @@ def train_and_evaluate(c: DictConfig):
 
     # start wandb
     if jax.process_index() == 0:
-        wandb.init(project=c.wandb_project, config=utils.flatten_dict(c), mode=c.wandb_mode, name=c.run_name, reinit='create_new')
+        wandb.init(project=c.wandb_project, config=utils.flatten_dict(c), mode=c.wandb_mode, name=c.run_name, reinit=True)
         wandb.summary.update(n_params)
 
     # training loop
