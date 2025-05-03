@@ -51,7 +51,7 @@ def train_and_evaluate(c: DictConfig):
     # we use FSDP to shard data, model, and optimzier parameters across this axis
     num_fsdp_devices = jax.device_count() // c.num_tp_devices
     mesh = Mesh(create_device_mesh((num_fsdp_devices, c.num_tp_devices)), ('data', 'model'))
-    print(f'sharding mesh: {mesh.shape}')
+    print('sharding mesh:', ', '.join(f'{k}={v}' for k, v in mesh.shape.items()))
 
     # model
     model = model_lib.create_sharded_model(c.model, mesh, key_model)
