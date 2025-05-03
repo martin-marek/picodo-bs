@@ -108,7 +108,7 @@ def tpu_causal_flash_attention(q, k, v, mesh):
 
     sharding = P('data', None, None, None)
     @partial(shard_map, mesh=mesh, in_specs=(sharding, sharding, sharding), out_specs=sharding, check_rep=False)
-    def wrap_flash_attention(q, k, v):
+    def attention(q, k, v):
         causal_mask = splash_attention_mask.CausalMask(shape=(T, T))
         multi_head_mask = splash_attention_mask.MultiHeadMask(masks=(causal_mask,) * T)
         splash_kernel = splash_attention_kernel.make_splash_mha(mask=multi_head_mask, head_shards=1, q_seq_shards=1, block_sizes=block_sizes)
@@ -119,7 +119,7 @@ def tpu_causal_flash_attention(q, k, v, mesh):
         ).swapaxes(1, 2) # [B, T, N, H]
         return out
 
-    return wrap_flash_attention(q, k, v)
+    return attention(q, k, v)
 
 
 class Mlp(nnx.Module):
