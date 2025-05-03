@@ -78,7 +78,7 @@ def train_and_evaluate(c: DictConfig):
 
     # start wandb
     if jax.process_index() == 0:
-        wandb.init(project=c.wandb_project, config=utils.flatten_dict(c), mode=c.wandb_mode, name=c.run_name)
+        wandb.init(project=c.wandb_project, config=utils.flatten_dict(c), mode=c.wandb_mode, name=c.run_name, reinit='create_new')
         wandb.summary.update(n_params)
 
     # training loop
