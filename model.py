@@ -3,18 +3,20 @@ import jax.numpy as jnp
 from functools import partial
 from flax import nnx
 from jax.sharding import Mesh
+from jax.sharding import PartitionSpec as P
+from jax.experimental.shard_map import shard_map
 from jax.experimental.pallas.ops.tpu.splash_attention import splash_attention_kernel, splash_attention_mask
 from omegaconf.dictconfig import DictConfig
 from rope import apply_rope
 
 
 class TransformerDecoder(nnx.Module):
-    def __init__(self, c: DictConfig, rngs: nnx.Rngs):
+    def __init__(self, c: DictConfig, rngs: nnx.Rngs, mesh):
         embed_in_init = sharded_init('embedding_in')
         embed_out_init = sharded_init('embedding_out')
         self.token_embed_in = nnx.Embed(num_embeddings=c.V, features=c.D, embedding_init=embed_in_init, rngs=rngs)
         self.token_embed_out = nnx.Embed(num_embeddings=c.V, features=c.D, embedding_init=embed_out_init, rngs=rngs)
-        self.blocks = [TransformerBlock(c, rngs) for _ in range(c.L)]
+        self.blocks = [TransformerBlock(c, rngs, mesh) for _ in range(c.L)]
         self.out_ln = nnx.RMSNorm(c.D, use_scale=False, dtype=c.dtype, rngs=rngs)
         
     def __call__(self, x): # [B, S]
@@ -33,10 +35,10 @@ class TransformerDecoder(nnx.Module):
 
 
 class TransformerBlock(nnx.Module):
-    def __init__(self, c: DictConfig, rngs: nnx.Rngs):
+    def __init__(self, c: DictConfig, rngs: nnx.Rngs, mesh):
         self.ln1 = nnx.RMSNorm(c.D, use_scale=False, dtype=c.dtype, rngs=rngs)
         self.ln2 = nnx.RMSNorm(c.D, use_scale=False, dtype=c.dtype, rngs=rngs)
-        self.attn = MultiHeadAttention(c, rngs=rngs)
+        self.attn = MultiHeadAttention(c, rngs, mesh)
         self.mlp = Mlp(c, rngs)
         
     def __call__(self, x): # [B, T, D]
@@ -46,14 +48,14 @@ class TransformerBlock(nnx.Module):
 
 class MultiHeadAttention(nnx.Module):
   """Causal attention layer."""
-  def __init__(self, c: DictConfig, rngs: nnx.Rngs):
+  def __init__(self, c: DictConfig, rngs: nnx.Rngs, mesh):
     qkv_proj_init = sharded_init('attn_qkv_proj')
     out_proj_init = sharded_init('attn_out_proj')
     self.qkv_proj = nnx.Einsum('bTD,SNDH->SbTNH', (3, c.N, c.D, c.H), kernel_init=qkv_proj_init, dtype=c.dtype, rngs=rngs)
     self.out_proj = nnx.Einsum('bTNH,NHD->bTD', (c.N, c.H, c.D),  kernel_init=out_proj_init, dtype=c.dtype, rngs=rngs)
     self.query_norm = nnx.RMSNorm(c.H, use_scale=False, dtype=c.dtype, rngs=rngs)
     self.key_norm = nnx.RMSNorm(c.H, use_scale=False, dtype=c.dtype, rngs=rngs)
-    self.attention = tpu_causal_flash_attention if jax.devices()[0].platform == 'tpu' else partial(jax.nn.dot_product_attention, is_causal=True)
+    self.attention = partial(tpu_causal_flash_attention, mesh=mesh) if jax.devices()[0].platform == 'tpu' else partial(jax.nn.dot_product_attention, is_causal=True)
 
   def __call__(self, x): # [B, T, D]
     B, T, D = x.shape
@@ -78,7 +80,7 @@ class MultiHeadAttention(nnx.Module):
     return out
 
 
-def tpu_causal_flash_attention(q, k, v):
+def tpu_causal_flash_attention(q, k, v, mesh):
     """
     TPU Flash Attention.
     Sharding along head and sequence dimensions is currently not allowed.
@@ -86,13 +88,10 @@ def tpu_causal_flash_attention(q, k, v):
     https://github.com/AI-Hypercomputer/maxtext/blob/9ea52118535e970096c164460dbbfa478d157066/MaxText/layers/attentions.py#L562
     """
     B, T, N, H = q.shape
+    assert H >= 128, 'TPU flash attention reqruies head dim. to be a multiple of 128'
 
     # scale query
     q /= jnp.sqrt(H)
-
-    # causal mask
-    causal_mask = splash_attention_mask.CausalMask(shape=(T, T))
-    multi_head_mask = splash_attention_mask.MultiHeadMask(masks=(causal_mask,) * N)
 
     # kernel block sizes
     # https://github.com/AI-Hypercomputer/maxtext/blob/afcdf47f8b7c1e1864fa81012a873590c5408122/MaxText/configs/base.yml#L644
@@ -106,16 +105,21 @@ def tpu_causal_flash_attention(q, k, v):
         block_q_dq=512,
         block_kv_dq=512,
     )
-    
-    # run kernel
-    splash_kernel = splash_attention_kernel.make_splash_mha(mask=multi_head_mask, head_shards=1, q_seq_shards=1, block_sizes=block_sizes)
-    out = jax.vmap(splash_kernel)(
-        q.swapaxes(1, 2),
-        k.swapaxes(1, 2),
-        v.swapaxes(1, 2)
-    ).swapaxes(1, 2) # [B, T, N, H]
 
-    return out
+    sharding = P('data', None, None, None)
+    @partial(shard_map, mesh=mesh, in_specs=(sharding, sharding, sharding), out_specs=sharding, check_rep=False)
+    def wrap_flash_attention(q, k, v):
+        causal_mask = splash_attention_mask.CausalMask(shape=(T, T))
+        multi_head_mask = splash_attention_mask.MultiHeadMask(masks=(causal_mask,) * T)
+        splash_kernel = splash_attention_kernel.make_splash_mha(mask=multi_head_mask, head_shards=1, q_seq_shards=1, block_sizes=block_sizes)
+        out = jax.vmap(splash_kernel)(
+            q.swapaxes(1, 2),
+            k.swapaxes(1, 2),
+            v.swapaxes(1, 2)
+        ).swapaxes(1, 2) # [B, T, N, H]
+        return out
+
+    return wrap_flash_attention(q, k, v)
 
 
 class Mlp(nnx.Module):
@@ -162,7 +166,7 @@ def create_sharded_model(c: DictConfig, mesh: Mesh, key):
     @nnx.jit
     def initialize_sharded_model():
         rngs = nnx.Rngs(seed)
-        model = TransformerDecoder(c, rngs=rngs) # unsharded at this moment
+        model = TransformerDecoder(c, rngs=rngs, mesh=mesh) # unsharded at this moment
         state = nnx.state(model) # the model's state, a pure pytree
         pspecs = nnx.get_partition_spec(state) # get annotations from state
         sharded_state = jax.lax.with_sharding_constraint(state, pspecs)
