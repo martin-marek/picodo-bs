@@ -1,5 +1,6 @@
 import jax
 import jax.numpy as jnp
+from functools import partial
 from flax import nnx
 from jax.sharding import Mesh
 from jax.experimental.pallas.ops.tpu.splash_attention import splash_attention_kernel, splash_attention_mask
@@ -52,7 +53,7 @@ class MultiHeadAttention(nnx.Module):
     self.out_proj = nnx.Einsum('bTNH,NHD->bTD', (c.N, c.H, c.D),  kernel_init=out_proj_init, dtype=c.dtype, rngs=rngs)
     self.query_norm = nnx.RMSNorm(c.H, use_scale=False, dtype=c.dtype, rngs=rngs)
     self.key_norm = nnx.RMSNorm(c.H, use_scale=False, dtype=c.dtype, rngs=rngs)
-    self.dtype = c.dtype
+    self.attention = tpu_causal_flash_attention if jax.devices()[0].platform == 'tpu' else partial(jax.nn.dot_product_attention, is_causal=True)
 
   def __call__(self, x): # [B, T, D]
     B, T, D = x.shape
@@ -70,8 +71,7 @@ class MultiHeadAttention(nnx.Module):
     k = apply_rope(k, position[None])
 
     # attention
-    # out = jax.nn.dot_product_attention(q, k, v, is_causal=True) # [B, T, N, H]
-    out = tpu_causal_flash_attention(q, k, v) # [B, T, N, H]
+    out = self.attention(q, k, v) # [B, T, N, H]
 
     # output projection followed by contraction back to original dims
     out = self.out_proj(out) # [B, T, D]
@@ -87,7 +87,14 @@ def tpu_causal_flash_attention(q, k, v):
     """
     B, T, N, H = q.shape
 
-    # block sizes
+    # scale query
+    q /= jnp.sqrt(H)
+
+    # causal mask
+    causal_mask = splash_attention_mask.CausalMask(shape=(T, T))
+    multi_head_mask = splash_attention_mask.MultiHeadMask(masks=(causal_mask,) * N)
+
+    # kernel block sizes
     # https://github.com/AI-Hypercomputer/maxtext/blob/afcdf47f8b7c1e1864fa81012a873590c5408122/MaxText/configs/base.yml#L644
     block_sizes = splash_attention_kernel.BlockSizes(
         block_q=512,
@@ -103,10 +110,6 @@ def tpu_causal_flash_attention(q, k, v):
         k_layout=splash_attention_kernel.QKVLayout["HEAD_DIM_MINOR"],
         v_layout=splash_attention_kernel.QKVLayout["HEAD_DIM_MINOR"],
     )
-    
-    # causal mask
-    causal_mask = splash_attention_mask.CausalMask(shape=(T, T))
-    multi_head_mask = splash_attention_mask.MultiHeadMask(masks=(causal_mask,) * N)
     
     # run kernel
     splash_kernel = splash_attention_kernel.make_splash_mha(mask=multi_head_mask, head_shards=1, q_seq_shards=1, block_sizes=block_sizes)
