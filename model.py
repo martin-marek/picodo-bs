@@ -47,37 +47,37 @@ class TransformerBlock(nnx.Module):
 
 
 class MultiHeadAttention(nnx.Module):
-  """Causal attention layer."""
-  def __init__(self, c: DictConfig, rngs: nnx.Rngs, mesh):
-    qkv_proj_init = sharded_init('attn_qkv_proj')
-    out_proj_init = sharded_init('attn_out_proj')
-    self.qkv_proj = nnx.Einsum('bTD,SNDH->SbTNH', (3, c.N, c.D, c.H), kernel_init=qkv_proj_init, dtype=c.dtype, rngs=rngs)
-    self.out_proj = nnx.Einsum('bTNH,NHD->bTD', (c.N, c.H, c.D),  kernel_init=out_proj_init, dtype=c.dtype, rngs=rngs)
-    self.query_norm = nnx.RMSNorm(c.H, use_scale=False, dtype=c.dtype, rngs=rngs)
-    self.key_norm = nnx.RMSNorm(c.H, use_scale=False, dtype=c.dtype, rngs=rngs)
-    self.attention = partial(tpu_causal_flash_attention, mesh=mesh) if jax.devices()[0].platform == 'tpu' else partial(jax.nn.dot_product_attention, is_causal=True)
+    """Causal attention layer."""
+    def __init__(self, c: DictConfig, rngs: nnx.Rngs, mesh):
+        qkv_proj_init = sharded_init('attn_qkv_proj')
+        out_proj_init = sharded_init('attn_out_proj')
+        self.qkv_proj = nnx.Einsum('bTD,SNDH->SbTNH', (3, c.N, c.D, c.H), kernel_init=qkv_proj_init, dtype=c.dtype, rngs=rngs)
+        self.out_proj = nnx.Einsum('bTNH,NHD->bTD', (c.N, c.H, c.D),  kernel_init=out_proj_init, dtype=c.dtype, rngs=rngs)
+        self.query_norm = nnx.RMSNorm(c.H, use_scale=False, dtype=c.dtype, rngs=rngs)
+        self.key_norm = nnx.RMSNorm(c.H, use_scale=False, dtype=c.dtype, rngs=rngs)
+        self.attention = partial(tpu_causal_flash_attention, mesh=mesh) if jax.devices()[0].platform == 'tpu' else partial(jax.nn.dot_product_attention, is_causal=True)
 
-  def __call__(self, x): # [B, T, D]
-    B, T, D = x.shape
+    def __call__(self, x): # [B, T, D]
+        B, T, D = x.shape
 
-    # input projection
-    q, k, v = self.qkv_proj(x) # [B, T, N, H]
+        # input projection
+        q, k, v = self.qkv_proj(x) # [B, T, N, H]
 
-    # qk-norm
-    q = self.query_norm(q)
-    k = self.key_norm(k)
+        # qk-norm
+        q = self.query_norm(q)
+        k = self.key_norm(k)
 
-    # position embedding
-    position = jnp.arange(T)
-    q = apply_rope(q, position[None])
-    k = apply_rope(k, position[None])
+        # position embedding
+        position = jnp.arange(T)
+        q = apply_rope(q, position[None])
+        k = apply_rope(k, position[None])
 
-    # attention
-    out = self.attention(q, k, v) # [B, T, N, H]
+        # attention
+        out = self.attention(q, k, v) # [B, T, N, H]
 
-    # output projection followed by contraction back to original dims
-    out = self.out_proj(out) # [B, T, D]
-    return out
+        # output projection followed by contraction back to original dims
+        out = self.out_proj(out) # [B, T, D]
+        return out
 
 
 def tpu_causal_flash_attention(q, k, v, mesh):
