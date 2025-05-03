@@ -105,7 +105,6 @@ def tpu_causal_flash_attention(q, k, v):
         block_kv_dkv_compute=512,
         block_q_dq=512,
         block_kv_dq=512,
-        use_fused_bwd_kernel=False,
     )
     
     # run kernel
