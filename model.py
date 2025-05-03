@@ -106,9 +106,6 @@ def tpu_causal_flash_attention(q, k, v):
         block_q_dq=512,
         block_kv_dq=512,
         use_fused_bwd_kernel=False,
-        q_layout=splash_attention_kernel.QKVLayout["HEAD_DIM_MINOR"],
-        k_layout=splash_attention_kernel.QKVLayout["HEAD_DIM_MINOR"],
-        v_layout=splash_attention_kernel.QKVLayout["HEAD_DIM_MINOR"],
     )
     
     # run kernel
