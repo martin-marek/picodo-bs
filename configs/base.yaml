@@ -27,7 +27,7 @@ model:
 opt:
   optimizer: 'sgd'
   batch_size: 4
-  max_microbatch_size: 4
+  max_microbatch_size: 1024
   microbatch_size: ${min:${opt.batch_size}, ${opt.max_microbatch_size}} 
   grad_acc_steps: ${floordiv:${opt.batch_size}, ${opt.microbatch_size}}
   peak_lr: null

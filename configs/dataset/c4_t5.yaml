@@ -1,12 +1,7 @@
-defaults:
-  - default
-  - _self_
+# @package _global_
 
 ds_path: '~/c4_t5all_1B_512.bin'
 pad_eval: true
 
 model:
-  D: 512
-  L: 6
-  T: 512
   V: 32101
