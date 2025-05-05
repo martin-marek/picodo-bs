@@ -16,8 +16,7 @@ def main(c: DictConfig):
     OmegaConf.update(c, c.ablation.hparam, c.ablation.scaling * OmegaConf.select(c, c.ablation.hparam))
 
     # run training job
-    print(OmegaConf.to_yaml(c))
-    # train.train_and_evaluate(c)
+    train.train_and_evaluate(c)
 
 
 if __name__ == '__main__':
