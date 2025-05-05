@@ -1,3 +1,4 @@
+import warnings
 import jax
 import jax.numpy as jnp
 from functools import partial
@@ -55,7 +56,10 @@ class MultiHeadAttention(nnx.Module):
         self.out_proj = nnx.Einsum('bTNH,NHD->bTD', (c.N, c.H, c.D),  kernel_init=out_proj_init, dtype=c.dtype, rngs=rngs)
         self.query_norm = nnx.RMSNorm(c.H, use_scale=False, dtype=c.dtype, rngs=rngs)
         self.key_norm = nnx.RMSNorm(c.H, use_scale=False, dtype=c.dtype, rngs=rngs)
-        self.attention = partial(tpu_causal_flash_attention, mesh=mesh) if jax.devices()[0].platform == 'tpu' else partial(jax.nn.dot_product_attention, is_causal=True)
+        if jax.devices()[0].platform == 'tpu' and divmod(c.H, 128)[1] != 0:
+            warnings.warn('Warning: cannot use flash attention because `model.H` is not a multiple of 128.')
+        use_flash_att = jax.devices()[0].platform == 'tpu' and divmod(c.H, 128)[1] == 0
+        self.attention = partial(tpu_causal_flash_attention, mesh=mesh) if use_flash_att else partial(jax.nn.dot_product_attention, is_causal=True)
 
     def __call__(self, x): # [B, T, D]
         B, T, D = x.shape
