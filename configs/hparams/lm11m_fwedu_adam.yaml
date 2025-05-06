@@ -37,6 +37,11 @@ bs_configs:
       peak_lr: 0.005
       t1: 3_000_000
       t2: 10_000_000
+  4096:
+    opt:
+      peak_lr: 0.005
+      t1: 12_000_000
+      t2: 10_000_000
 
 opt:
   optimizer: 'adamw'
