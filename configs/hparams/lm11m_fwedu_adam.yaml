@@ -3,7 +3,7 @@
 defaults:
   - /base
   - /model/lm11m
-  - /dataset/fw_gpt2
+  - /dataset/fwedu_gpt2
   - _self_
 
 bs_configs:
