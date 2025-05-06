@@ -23,6 +23,7 @@ model:
   T: 1024 # context/sequence length
   V: 50257 # vocab size -> must match dataset tokenizer!
   dtype: null
+  use_flash_attn: true
 
 opt:
   optimizer: 'sgd'
