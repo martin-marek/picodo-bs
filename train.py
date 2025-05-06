@@ -110,3 +110,4 @@ def train_and_evaluate(c: DictConfig):
         if jax.process_index() == 0:
             wandb.log(pending_train_metrics, step)
             wandb.log(pending_eval_metrics, step)
+            wandb.finish()
