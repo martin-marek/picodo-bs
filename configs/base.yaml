@@ -15,19 +15,19 @@ wandb_mode: 'online'
 run_name: null
 
 model:
-  D: 768 # model/embed/qkv dim
-  L: 12 # num. block layers
-  H: 128 # head dimension
+  D: null # model/embed/qkv dim
+  L: null # num. block layers
+  H: null # head dimension
   F: ${mul:4, ${model.D}} # FF inner dimension = 4 x embed dim.
   N: ${floordiv:${model.D}, ${model.H}} # num. attention heads
-  T: 1024 # context/sequence length
-  V: 50257 # vocab size -> must match dataset tokenizer!
+  T: null # context/sequence length
+  V: null # vocab size -> must match dataset tokenizer!
   dtype: null
   use_flash_attn: true
 
 opt:
-  optimizer: 'sgd'
-  batch_size: 4
+  optimizer: null
+  batch_size: null
   max_microbatch_size: .inf
   microbatch_size: ${min:${opt.batch_size}, ${opt.max_microbatch_size}} 
   grad_acc_steps: ${floordiv:${opt.batch_size}, ${opt.microbatch_size}}
