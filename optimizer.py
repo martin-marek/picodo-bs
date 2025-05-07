@@ -49,7 +49,7 @@ def get_optimizer(c: OmegaConf, params, num_microbatch_steps: int, tokens_per_mi
         assert c.b2 is not None
         assert c.muon_lr is not None
         assert c.muon_b1 is not None
-        muon_lr = optax.schedules.warmup_cosine_decay_schedule(0, c.peak_lr, warmup_steps, num_microbatch_steps)
+        muon_lr = optax.schedules.warmup_cosine_decay_schedule(0, c.muon_lr, warmup_steps, num_microbatch_steps)
         grad_transform = multistep_wrapper(muon.muon, c.grad_acc_steps)
         optimizer = optax.inject_hyperparams(grad_transform)(muon_lr, c.muon_b1, lr_schedule, c.b1, c.b2)
 
