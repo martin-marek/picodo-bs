@@ -24,6 +24,7 @@ class TransformerDecoder(nnx.Module):
 
         # token embedding
         h = self.token_embed_in(x) # [B, T, D]
+        h = jax.lax.with_sharding_constraint(h, P('data', None, 'model'))
         
         # transformer blocks
         for block in self.blocks:
@@ -56,10 +57,10 @@ class MultiHeadAttention(nnx.Module):
         self.out_proj = nnx.Einsum('bTNH,NHD->bTD', (c.N, c.H, c.D),  kernel_init=out_proj_init, dtype=c.dtype, rngs=rngs)
         self.query_norm = nnx.RMSNorm(c.H, use_scale=False, dtype=c.dtype, rngs=rngs)
         self.key_norm = nnx.RMSNorm(c.H, use_scale=False, dtype=c.dtype, rngs=rngs)
-        if c.use_flash_attn and jax.devices()[0].platform == 'tpu' and divmod(c.H, 128)[1] != 0:
+        if c.use_flash_attn and jax.devices()[0].platform == 'tpu' and (c.H // 128 != 0):
             warnings.warn('cannot use flash attention because `model.H` is not a multiple of 128.')
         c.use_flash_attn &= jax.devices()[0].platform == 'tpu'
-        c.use_flash_attn &= divmod(c.H, 128)[1] == 0
+        c.use_flash_attn &= (c.H % 128 == 0)
         self.attention = partial(tpu_causal_flash_attention, mesh=mesh) if c.use_flash_attn else partial(jax.nn.dot_product_attention, is_causal=True)
 
     def __call__(self, x): # [B, T, D]
@@ -88,7 +89,6 @@ class MultiHeadAttention(nnx.Module):
 def tpu_causal_flash_attention(q, k, v, mesh):
     """
     TPU Flash Attention.
-    Sharding along head and sequence dimensions is currently not allowed.
     https://github.com/jax-ml/jax/blob/main/jax/experimental/pallas/ops/tpu/splash_attention/splash_attention_kernel.py
     https://github.com/AI-Hypercomputer/maxtext/blob/9ea52118535e970096c164460dbbfa478d157066/MaxText/layers/attentions.py#L562
     """
@@ -111,11 +111,12 @@ def tpu_causal_flash_attention(q, k, v, mesh):
         block_kv_dq=512,
     )
 
-    sharding = P('data', None, None, None)
+    sharding = P('data', None, 'model', None)
     @partial(shard_map, mesh=mesh, in_specs=(sharding, sharding, sharding), out_specs=sharding, check_rep=False)
     def attention(q, k, v):
+        _, _, n, _ = q.shape
         causal_mask = splash_attention_mask.CausalMask(shape=(T, T))
-        multi_head_mask = splash_attention_mask.MultiHeadMask(masks=(causal_mask,) * T)
+        multi_head_mask = splash_attention_mask.MultiHeadMask(masks=(causal_mask,) * n)
         splash_kernel = splash_attention_kernel.make_splash_mha(mask=multi_head_mask, head_shards=1, q_seq_shards=1, block_sizes=block_sizes)
         out = jax.vmap(splash_kernel)(
             q.swapaxes(1, 2),
@@ -146,17 +147,17 @@ def sharded_init(layer_type: str):
     embed_init = jax.nn.initializers.variance_scaling(1.0, 'fan_in', 'normal', out_axis=0)
     match layer_type:
         case 'embedding_in': # [V, D]
-            return nnx.with_partitioning(embed_init, (None, 'data'))
+            return nnx.with_partitioning(embed_init, ('data', 'model'))
         case 'embedding_out': # [V, D]
-            return nnx.with_partitioning(embed_init, (None, 'data'))
+            return nnx.with_partitioning(embed_init, ('model', 'data'))
         case 'attn_qkv_proj': # [3, N, D, H]
-            return nnx.with_partitioning(kernel_init, (None, None, 'data', None))
+            return nnx.with_partitioning(kernel_init, (None, 'model', 'data', None))
         case 'attn_out_proj': # [N, H, D]
-            return nnx.with_partitioning(kernel_init, (None, None, 'data'))
+            return nnx.with_partitioning(kernel_init, ('model', None, 'data'))
         case 'mlp_fc1': # [D, F]
-            return nnx.with_partitioning(kernel_init, ('data', None))
+            return nnx.with_partitioning(kernel_init, ('data', 'model'))
         case 'mlp_fc2': # [F, D]
-            return nnx.with_partitioning(kernel_init, (None, 'data'))
+            return nnx.with_partitioning(kernel_init, ('model', 'data'))
         case _:
             raise ValueError(f'unrecognized layer type: {layer_type}')
 

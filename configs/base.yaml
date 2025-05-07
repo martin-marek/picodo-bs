@@ -13,6 +13,7 @@ pad_eval: false
 wandb_project: 'picodo-bs'
 wandb_mode: 'online'
 run_name: null
+num_tp_devices: 1 # optional tensor parallelism
 
 model:
   D: null # model/embed/qkv dim
