@@ -74,7 +74,6 @@ def muon(
     adam_b1: float,
     adam_b2: float,
 ) -> optax.GradientTransformation:
-    # return optax.adamw(adam_lr, adam_b1, adam_b2)
     return optax.multi_transform(
         transforms={
             'muon': optax.chain(
