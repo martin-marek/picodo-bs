@@ -7,12 +7,8 @@ from typing import NamedTuple, Optional
 import chex
 import jax
 import jax.numpy as jnp
-
+import optax
 from optax import tree_utils as otu
-from optax._src import base
-from optax._src import numerics
-from optax._src import transform
-from optax._src import combine
 
 
 def orthogonalize_via_newton_schulz(
@@ -34,8 +30,7 @@ def orthogonalize_via_newton_schulz(
     if x.shape[-2] > x.shape[-1]: # <-- changed (check last 2 dims)
         x = jnp.swapaxes(x, -2, -1) # <-- changed (transpose last 2 dims)
         transposed = True
-    # Original line: x /= jnp.linalg.norm(x) + eps
-    x = x / (jnp.linalg.norm(x, axis=(-2, -1), keepdims=True) + eps) # <-- changed (normalize each matrix slice)
+    x /= (jnp.linalg.norm(x, axis=(-2, -1), keepdims=True) + eps) # <-- changed (normalize each matrix slice)
     ns_coeffs = ns_coeffs.astype(x.dtype)
     x = jax.lax.fori_loop(0, ns_steps, lambda _, x: newton_schulz_iterator(x, ns_coeffs), x)
     if transposed: x = jnp.swapaxes(x, -2, -1) # <-- changed (transpose last 2 dims)
@@ -45,7 +40,7 @@ def orthogonalize_via_newton_schulz(
 class MuonState(NamedTuple):
     """State for the Adam algorithm."""
     count: chex.Array # shape=(), dtype=jnp.int32.
-    mu: base.Updates
+    mu: optax.Updates
     ns_coeffs: chex.Array # shape=(), dtype=jnp.int32.
 
 
@@ -54,7 +49,7 @@ def scale_by_muon(
     ns_steps: int = 5,
     beta: float = 0.95,
     eps: float = 1e-8,
-) -> base.GradientTransformation:
+) -> optax.GradientTransformation:
 
     def init_fn(params):
         mu = otu.tree_zeros_like(params) # First moment
@@ -63,23 +58,32 @@ def scale_by_muon(
     def update_fn(updates, state, params=None):
         del params
         mu = otu.tree_update_moment(updates, state.mu, beta, 1)
-        count_inc = numerics.safe_increment(state.count)
+        count_inc = optax.safe_increment(state.count)
         mu_hat = otu.tree_bias_correction(mu, beta, count_inc)
         # Apply Newton-schulz orthogonalization.
         updates = jax.tree.map(lambda x: orthogonalize_via_newton_schulz(x, state.ns_coeffs, ns_steps, eps), mu_hat)
         updates = jax.tree.map(lambda x: jnp.sqrt(jnp.maximum(1, x.shape[-1] / x.shape[-2])) * x, updates)
         return updates, MuonState(count_inc, mu, state.ns_coeffs)
-    return base.GradientTransformation(init_fn, update_fn)
+    return optax.GradientTransformation(init_fn, update_fn)
 
 
 def muon(
-    learning_rate: base.ScalarOrSchedule,
-    ns_coeffs: tuple = (3.4445, -4.7750, 2.0315),
-    ns_steps: int = 5,
-    beta: float = 0.95,
-    eps: float = 1e-8,
-) -> base.GradientTransformation:
-    return combine.chain(
-        scale_by_muon(ns_coeffs, ns_steps, beta, eps),
-        transform.scale_by_learning_rate(learning_rate),
+    learning_rate: float,
+    muon_b1: float,
+    adam_lr: float,
+    adam_b1: float,
+    adam_b2: float,
+) -> optax.GradientTransformation:
+    # return optax.adamw(adam_lr, adam_b1, adam_b2)
+    return optax.multi_transform(
+        transforms={
+            'muon': optax.chain(
+                scale_by_muon(beta=muon_b1),
+                optax.scale_by_learning_rate(learning_rate),
+            ),
+            'adam': optax.adamw(adam_lr, adam_b1, adam_b2)
+        },
+        param_labels=lambda params: jax.tree.map_with_path(
+            lambda path, val: 'adam' if 'embed' in jax.tree_util.keystr(path) else 'muon', params
+        ),
     )

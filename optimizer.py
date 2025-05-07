@@ -21,11 +21,14 @@ def get_optimizer(c: OmegaConf, params, num_microbatch_steps: int, tokens_per_mi
     # convert (t1 <-> b1), (t2 <-> b2)
     assert (c.b1 is None) | (c.t1 is None) # at most one can be specified in config
     assert (c.b2 is None) | (c.t2 is None) # at most one can be specified in config
+    assert (c.muon_b1 is None) | (c.muon_t1 is None) # at most one can be specified in config
     tokens_per_opt_step = c.grad_acc_steps * tokens_per_microbatch
     if c.b1 is None and c.t1 is not None: c.b1 = float(utils.halflife_to_decay(c.t1, tokens_per_opt_step))
-    if c.t1 is None and c.b1 is not None: c.t1 = float(utils.decay_to_halflife(c.b1, tokens_per_opt_step))
     if c.b2 is None and c.t2 is not None: c.b2 = float(utils.halflife_to_decay(c.t2, tokens_per_opt_step))
+    if c.t1 is None and c.b1 is not None: c.t1 = float(utils.decay_to_halflife(c.b1, tokens_per_opt_step))
     if c.t2 is None and c.b2 is not None: c.t2 = float(utils.decay_to_halflife(c.b2, tokens_per_opt_step))
+    if c.muon_b1 is None and c.muon_t1 is not None: c.muon_b1 = float(utils.halflife_to_decay(c.muon_t1, tokens_per_opt_step))
+    if c.muon_t1 is None and c.muon_b1 is not None: c.muon_t1 = float(utils.decay_to_halflife(c.muon_b1, tokens_per_opt_step))
 
     if c.optimizer == 'sgd':
         assert c.b2 is None
@@ -43,8 +46,11 @@ def get_optimizer(c: OmegaConf, params, num_microbatch_steps: int, tokens_per_mi
     
     if c.optimizer == 'muon':
         assert c.b1 is not None
-        assert c.b2 is None
+        assert c.b2 is not None
+        assert c.muon_lr is not None
+        assert c.muon_b1 is not None
+        muon_lr = optax.schedules.warmup_cosine_decay_schedule(0, c.peak_lr, warmup_steps, num_microbatch_steps)
         grad_transform = multistep_wrapper(muon.muon, c.grad_acc_steps)
-        optimizer = optax.inject_hyperparams(grad_transform)(lr_schedule, beta=c.b1)
+        optimizer = optax.inject_hyperparams(grad_transform)(muon_lr, c.muon_b1, lr_schedule, c.b1, c.b2)
 
     return optimizer
