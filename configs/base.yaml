@@ -34,10 +34,13 @@ opt:
   peak_lr: null
   peak_lr_scaled: null
   peak_lr_scaling: null
+  muon_lr: null
   warmup_frac: 0.05
   b1: null
   b2: null
   t1: null # units: num. of tokens
   t2: null # units: num. of tokens
+  muon_b1: null
+  muon_t1: null # units: num. of tokens
   b2_min: null
   weight_decay: 0
