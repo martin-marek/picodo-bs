@@ -57,7 +57,7 @@ class MultiHeadAttention(nnx.Module):
         self.out_proj = nnx.Einsum('bTNH,NHD->bTD', (c.N, c.H, c.D),  kernel_init=out_proj_init, dtype=c.dtype, rngs=rngs)
         self.query_norm = nnx.RMSNorm(c.H, use_scale=False, dtype=c.dtype, rngs=rngs)
         self.key_norm = nnx.RMSNorm(c.H, use_scale=False, dtype=c.dtype, rngs=rngs)
-        if c.use_flash_attn and jax.devices()[0].platform == 'tpu' and (c.H // 128 != 0):
+        if c.use_flash_attn and jax.devices()[0].platform == 'tpu' and (c.H % 128 != 0):
             warnings.warn('cannot use flash attention because `model.H` is not a multiple of 128.')
         c.use_flash_attn &= jax.devices()[0].platform == 'tpu'
         c.use_flash_attn &= (c.H % 128 == 0)
