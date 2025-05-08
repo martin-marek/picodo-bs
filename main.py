@@ -25,8 +25,6 @@ def main(c: DictConfig):
             OmegaConf.update(c, k, OmegaConf.select(c, k) * OmegaConf.select(c.scaling, k))
         del c.scaling
 
-
-    print(c.opt.b1, c.opt.t1)
     # run training job
     train.train_and_evaluate(c)
 
