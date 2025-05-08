@@ -9,8 +9,6 @@ from utils import flatten_dict
 @hydra.main(version_base=None, config_path='configs', config_name='base')
 def main(c: DictConfig):
 
-    print(c.opt.batch_size)
-
     # optionally load batch size config
     if 'bs_configs' in c:
         c = OmegaConf.merge(c, c.bs_configs[f'bs{c.opt.batch_size}'])
