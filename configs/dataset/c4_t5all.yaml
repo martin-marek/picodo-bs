@@ -1,6 +1,6 @@
 # @package _global_
 
-ds_path: '~/c4_t5all_1B_512.bin'
+ds_path: '~/datasets/c4_t5all_1B_512.bin'
 pad_eval: true
 
 model:
