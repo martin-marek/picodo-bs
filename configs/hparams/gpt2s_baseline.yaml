@@ -8,8 +8,8 @@ defaults:
 
 opt:
   optimizer: 'adamw'
-  opt.batch_size: 512
-  opt.peak_lr: 0.0006
-  opt.b1: 0.9
-  opt.b2: 0.95
-  opt.weight_decay: 0.1
+  batch_size: 512
+  peak_lr: 0.0006
+  b1: 0.9
+  b2: 0.95
+  weight_decay: 0.1
