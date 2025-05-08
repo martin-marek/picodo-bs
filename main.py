@@ -6,12 +6,14 @@ from utils import flatten_dict
 
 
 # load default config
-@hydra.main(version_base=None, config_path='configs')
+@hydra.main(version_base=None, config_path='configs', config_name='base')
 def main(c: DictConfig):
+
+    print(c.opt.batch_size)
 
     # optionally load batch size config
     if 'bs_configs' in c:
-        c = OmegaConf.merge(c, c.bs_configs[c.opt.batch_size])
+        c = OmegaConf.merge(c, c.bs_configs[f'bs{c.opt.batch_size}'])
         del c.bs_configs
 
     # optionally translate 1d scaling to generalized scaling config
@@ -25,6 +27,8 @@ def main(c: DictConfig):
             OmegaConf.update(c, k, OmegaConf.select(c, k) * OmegaConf.select(c.scaling, k))
         del c.scaling
 
+
+    print(c.opt.b1, c.opt.t1)
     # run training job
     train.train_and_evaluate(c)
 
