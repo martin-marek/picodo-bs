@@ -1,13 +1,8 @@
-"""
-based on https://github.com/google-deepmind/optax/blob/main/optax/contrib/_muon.py
-"""
-
-from typing import NamedTuple, Optional
-
 import jax
 import jax.numpy as jnp
 import optax
 from optax import tree_utils as otu
+from typing import NamedTuple
 
 
 def orthogonalize_via_newton_schulz(
@@ -16,6 +11,7 @@ def orthogonalize_via_newton_schulz(
     ns_steps: int = 5,
     eps: float = 1e-8,
 ) -> jax.Array:
+    # https://github.com/google-deepmind/optax/blob/main/optax/contrib/_muon.py 
     if x.ndim < 2:
         raise ValueError(f'Input must have >= 2 dims, got {x.shape}')
     if ns_coeffs.shape != (3,):
@@ -49,6 +45,7 @@ def scale_by_muon(
     beta: float = 0.95,
     eps: float = 1e-8,
 ) -> optax.GradientTransformation:
+    # https://github.com/google-deepmind/optax/blob/main/optax/contrib/_muon.py 
 
     def init_fn(params):
         mu = otu.tree_zeros_like(params) # First moment
@@ -63,6 +60,7 @@ def scale_by_muon(
         updates = jax.tree.map(lambda x: orthogonalize_via_newton_schulz(x, state.ns_coeffs, ns_steps, eps), mu_hat)
         updates = jax.tree.map(lambda x: jnp.sqrt(jnp.maximum(1, x.shape[-1] / x.shape[-2])) * x, updates)
         return updates, MuonState(count_inc, mu, state.ns_coeffs)
+    
     return optax.GradientTransformation(init_fn, update_fn)
 
 
