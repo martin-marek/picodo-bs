@@ -4,7 +4,7 @@ import optax
 from optax import tree_utils as otu
 from omegaconf import DictConfig
 import multistep, utils
-from typing import NamedTuple
+from typing import Optional, NamedTuple
 
 
 def get_optimizer(c: DictConfig, params, num_microbatch_steps: int, tokens_per_microbatch: int):
@@ -33,12 +33,13 @@ def get_optimizer(c: DictConfig, params, num_microbatch_steps: int, tokens_per_m
     if c.muon_b1 is None and c.muon_t1 is not None: c.muon_b1 = float(utils.halflife_to_decay(c.muon_t1, tokens_per_opt_step))
     if c.muon_t1 is None and c.muon_b1 is not None: c.muon_t1 = float(utils.decay_to_halflife(c.muon_b1, tokens_per_opt_step))
 
-    if c.optimizer == 'sgd':
+    if c.optimizer in ('sgd', 'signum'):
         assert c.b2 is None
         assert c.t2 is None
         assert c.weight_decay == 0
-        grad_transform = multistep_wrapper(optax.sgd, c.grad_acc_steps)
-        optimizer = optax.inject_hyperparams(grad_transform)(lr_schedule, c.b1)
+        signed = c.optimizer == 'signum'
+        grad_transform = multistep_wrapper(sgd, c.grad_acc_steps)
+        optimizer = optax.inject_hyperparams(grad_transform)(lr_schedule, c.b1, signed)
 
     if c.optimizer == 'adamw':
         assert c.b1 is not None
@@ -57,6 +58,18 @@ def get_optimizer(c: DictConfig, params, num_microbatch_steps: int, tokens_per_m
         optimizer = optax.inject_hyperparams(grad_transform)(muon_lr, c.muon_b1, lr_schedule, c.b1, c.b2)
 
     return optimizer
+
+
+def sgd(
+    learning_rate: float,
+    b1: Optional[float] = None,
+    signed = False,
+) -> optax.GradientTransformation:
+    return optax.chain(
+        optax.identity() if b1 is None else optax.ema(decay=b1),
+        optax.scale_by_sign(),
+        optax.scale_by_learning_rate(learning_rate),
+    )
 
 
 def orthogonalize_via_newton_schulz(
