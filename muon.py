@@ -4,7 +4,6 @@ based on https://github.com/google-deepmind/optax/blob/main/optax/contrib/_muon.
 
 from typing import NamedTuple, Optional
 
-import chex
 import jax
 import jax.numpy as jnp
 import optax
@@ -39,9 +38,9 @@ def orthogonalize_via_newton_schulz(
 
 class MuonState(NamedTuple):
     """State for the Adam algorithm."""
-    count: chex.Array # shape=(), dtype=jnp.int32.
+    count: jax.Array # shape=(), dtype=jnp.int32.
     mu: optax.Updates
-    ns_coeffs: chex.Array # shape=(), dtype=jnp.int32.
+    ns_coeffs: jax.Array # shape=(), dtype=jnp.int32.
 
 
 def scale_by_muon(
