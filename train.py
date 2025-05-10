@@ -15,7 +15,7 @@ from omegaconf.dictconfig import DictConfig
 
 
 def loss_fn(model, x, pad=False): # [B, T]
-    y = jnp.roll(x, 1, axis=1)
+    y = jnp.roll(x, -1, axis=1)
     loss_mask = data.pad_mask(x) if pad else jnp.ones(x.shape, dtype=bool)
     loss_mask = loss_mask.at[:, -1].set(False)
     logits = model(x)
