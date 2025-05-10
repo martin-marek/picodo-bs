@@ -14,9 +14,10 @@ from jax.sharding import PartitionSpec as P
 from omegaconf.dictconfig import DictConfig
 
 
-def loss_fn(model, batch, pad=False):
-    x, y = batch[:, :-1], batch[:, 1:]
-    loss_mask = data.pad_mask(x) if pad else jnp.ones(x.shape)
+def loss_fn(model, x, pad=False): # [B, T]
+    y = jnp.roll(x, 1, axis=1)
+    loss_mask = data.pad_mask(x) if pad else jnp.ones(x.shape, dtype=bool)
+    loss_mask = loss_mask.at[:, -1].set(False)
     logits = model(x)
     losses = optax.softmax_cross_entropy_with_integer_labels(logits, y)
     return (losses * loss_mask).sum() / loss_mask.sum()
@@ -68,7 +69,7 @@ def train_and_evaluate(c: DictConfig):
     # dataset
     if (c.num_tokens_train is None) and (c.tokens_params_ratio is not None):
         c.num_tokens_train = c.tokens_params_ratio * (n_params['n_param_nonembed'] + n_params['n_param_embed'])
-    ds_train, ds_valid = data.load_ds(key_dataset, mesh, c.ds_path, c.model.T+1, c.opt.microbatch_size, c.num_tokens_valid, c.num_tokens_train)
+    ds_train, ds_valid = data.load_ds(key_dataset, mesh, c.ds_path, c.model.T, c.opt.microbatch_size, c.num_tokens_valid, c.num_tokens_train)
     if (c.num_tokens_train is None): c.num_tokens_train = ds_train.size
 
     # optimizer
