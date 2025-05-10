@@ -29,16 +29,14 @@ def train_step(opt_graphdef, opt_state, batch):
     loss, grads = nnx.value_and_grad(loss_fn)(optimizer.model, batch)
     optimizer.update(grads)
     opt_state = nnx.state(optimizer)
-    lr = optimizer.opt_state.hyperparams['learning_rate'].value
-    metrics = {'train_loss': loss, 'learning_rate': lr}
-    return opt_state, metrics
+    return opt_state, loss
 
 
-@partial(jax.jit, static_argnames=['model_graphdef', 'pad'])
-def eval_step(model_graphdef, model_state, dataset, pad=False):
-    model = nnx.merge(model_graphdef, model_state)
-    losses = jax.lax.map(partial(loss_fn, model, pad=pad), dataset)
-    return {'eval_loss': losses.mean()}
+@partial(jax.jit, static_argnames=['opt_graphdef', 'pad'])
+def eval_step(opt_graphdef, opt_state, dataset, pad=False):
+    optimizer = nnx.merge(opt_graphdef, opt_state)
+    losses = jax.lax.map(partial(loss_fn, optimizer.model, pad=pad), dataset)
+    return losses.mean()
 
 
 def train_and_evaluate(c: DictConfig):
@@ -57,7 +55,7 @@ def train_and_evaluate(c: DictConfig):
 
     # model
     model = model_lib.create_sharded_model(c.model, mesh, key_model)
-    model_graphdef, model_state = nnx.split(model)
+    _, model_state = nnx.split(model)
     n_params = {
         'n_param_nonembed': 12 * c.model.L * c.model.D**2,
         'n_param_embed': c.model.D * c.model.V,
@@ -77,6 +75,7 @@ def train_and_evaluate(c: DictConfig):
     tokens_per_microbatch = c.opt.microbatch_size * c.model.T
     tx = optimizer_lib.get_optimizer(c.opt, model_state, num_microbatch_steps, tokens_per_microbatch)
     optimizer = nnx.Optimizer(model, tx)
+    opt_graphdef, opt_state = nnx.split(optimizer)
 
     # start wandb
     if jax.process_index() == 0:
@@ -84,34 +83,30 @@ def train_and_evaluate(c: DictConfig):
         wandb.summary.update(n_params)
 
     # training loop
-    # note: metrics for each steps are processed only after asynchronously dispatching the next step
-    pending_train_metrics = None
-    pending_eval_metrics = None
-    opt_graphdef, opt_state = nnx.split(optimizer)
+    train_loss_sum, train_loss_num = jnp.zeros([]), 0
     with mesh:
         pbar = range(len(ds_train))
         if jax.process_index() == 0: pbar = tqdm(pbar)
         for step in pbar:
             
             # training step
-            opt_state, train_metrics = train_step(opt_graphdef, opt_state, ds_train[step])
-            train_metrics |= {'train_tokens_seen': (step+1)*tokens_per_microbatch}
+            opt_state, batch_loss = train_step(opt_graphdef, opt_state, ds_train[step])
+            train_loss_sum += batch_loss
+            train_loss_num += 1
 
-            # async logging
-            if jax.process_index() == 0:
-                if pending_train_metrics is not None:
-                    pbar.set_postfix_str(f'loss={pending_train_metrics["train_loss"]:.2f}')
-                    wandb.log(pending_train_metrics, step-1)
-                pending_train_metrics = train_metrics
-                if pending_eval_metrics is not None:
-                    wandb.log(pending_eval_metrics, step-1)
-                    pending_eval_metrics = None
+            # logging
+            if (c.num_log_steps*(step+1)) % num_microbatch_steps < c.num_log_steps:
+                metrics = {}
+                metrics['train_loss'] = train_loss_sum / train_loss_num
+                metrics['train_tokens_seen'] = (step+1) * tokens_per_microbatch
+                metrics['learning_rate'] = opt_state.opt_state.hyperparams['learning_rate'].value
+                if jax.process_index() == 0:
+                    wandb.log(metrics, step)
+                    pbar.set_postfix_str(f'loss={metrics["train_loss"]:.2f}')
+                train_loss_sum, train_loss_num = jnp.zeros([]), 0
 
-            # eval step
-            if (c.num_eval_steps*(step+1)) % num_microbatch_steps < c.num_eval_steps:
-                pending_eval_metrics = eval_step(model_graphdef, opt_state.model, ds_valid, c.pad_eval)
-
+        # eval at end of training
+        eval_loss = eval_step(opt_graphdef, opt_state, ds_valid, c.pad_eval)
         if jax.process_index() == 0:
-            wandb.log(pending_train_metrics, step)
-            wandb.log(pending_eval_metrics, step)
+            wandb.log({'eval_loss': eval_loss}, step)
             wandb.finish()
