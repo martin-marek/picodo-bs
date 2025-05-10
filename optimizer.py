@@ -66,8 +66,8 @@ def sgd(
     signed = False,
 ) -> optax.GradientTransformation:
     return optax.chain(
-        optax.identity() if b1 is None else optax.ema(decay=b1),
-        optax.scale_by_sign(),
+        optax.trace(decay=b1) if b1 is not None else optax.identity(),
+        optax.scale_by_sign() if signed else optax.identity(),
         optax.scale_by_learning_rate(learning_rate),
     )
 
