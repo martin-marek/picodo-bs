@@ -32,6 +32,7 @@ def get_optimizer(c: DictConfig, params, num_microbatch_steps: int, tokens_per_m
     if c.t2 is None and c.b2 is not None: c.t2 = float(utils.decay_to_halflife(c.b2, tokens_per_opt_step))
     if c.muon_b1 is None and c.muon_t1 is not None: c.muon_b1 = float(utils.halflife_to_decay(c.muon_t1, tokens_per_opt_step))
     if c.muon_t1 is None and c.muon_b1 is not None: c.muon_t1 = float(utils.decay_to_halflife(c.muon_b1, tokens_per_opt_step))
+    if c.b2_min is not None: c.b2 = max(c.b2, c.b2_min)
 
     if c.optimizer in ('sgd', 'signum'):
         assert c.b2 is None
@@ -44,10 +45,16 @@ def get_optimizer(c: DictConfig, params, num_microbatch_steps: int, tokens_per_m
     if c.optimizer == 'adamw':
         assert c.b1 is not None
         assert c.b2 is not None
-        if c.b2_min is not None: c.b2 = max(c.b2, c.b2_min)
         grad_transform = multistep_wrapper(optax.adamw, c.grad_acc_steps)
         optimizer = optax.inject_hyperparams(grad_transform)(lr_schedule, c.b1, c.b2, weight_decay=c.weight_decay)
     
+    if c.optimizer == 'adafactor':
+        assert c.b1 is None
+        assert c.b2 is not None
+        grad_transform = multistep_wrapper(optax.adafactor, c.grad_acc_steps)
+        optimizer = optax.inject_hyperparams(grad_transform, static_args='min_dim_size_to_factor')(lr_schedule, min_dim_size_to_factor=128, decay_rate=c.b2)
+    
+
     if c.optimizer == 'muon':
         assert c.b1 is not None
         assert c.b2 is not None
