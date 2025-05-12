@@ -19,6 +19,7 @@ class TransformerDecoder(nnx.Module):
         self.token_embed_out = nnx.Embed(num_embeddings=c.V, features=c.D, embedding_init=embed_out_init, rngs=rngs)
         self.blocks = [TransformerBlock(c, rngs, mesh) for _ in range(c.L)]
         self.out_ln = nnx.RMSNorm(c.D, use_scale=False, dtype=c.dtype, rngs=rngs)
+        self.remat = c.remat
         
     def __call__(self, x): # [B, S]
 
@@ -27,7 +28,7 @@ class TransformerDecoder(nnx.Module):
         
         # transformer blocks
         for block in self.blocks:
-            h = block(h)
+            h = jax.remat(block)(h) if self.remat else block(h)
 
         # project back to vocabulary
         h = self.out_ln(h)

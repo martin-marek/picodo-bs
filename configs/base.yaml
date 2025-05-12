@@ -24,6 +24,7 @@ model:
   T: null # context/sequence length
   V: null # vocab size -> must match dataset tokenizer!
   dtype: null
+  remat: false
   use_flash_attn: true
 
 opt:
