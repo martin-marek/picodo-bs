@@ -24,7 +24,6 @@ class TransformerDecoder(nnx.Module):
 
         # token embedding
         h = self.token_embed_in(x) # [B, T, D]
-        h = jax.lax.with_sharding_constraint(h, P('data', None, 'model'))
         
         # transformer blocks
         for block in self.blocks:
@@ -103,10 +102,10 @@ def tpu_causal_flash_attention(q, k, v, mesh):
     block_sizes = splash_attention_kernel.BlockSizes(
         block_q=512,
         block_kv=512,
-        block_kv_compute=512,
+        block_kv_compute=128,
         block_q_dkv=512,
         block_kv_dkv=512,
-        block_kv_dkv_compute=512,
+        block_kv_dkv_compute=128,
         block_q_dq=512,
         block_kv_dq=512,
     )
@@ -149,7 +148,7 @@ def sharded_init(layer_type: str):
         case 'embedding_in': # [V, D]
             return nnx.with_partitioning(embed_init, ('data', 'model'))
         case 'embedding_out': # [V, D]
-            return nnx.with_partitioning(embed_init, ('model', 'data'))
+            return nnx.with_partitioning(embed_init, ('data', 'model'))
         case 'attn_qkv_proj': # [3, N, D, H]
             return nnx.with_partitioning(kernel_init, (None, 'model', 'data', None))
         case 'attn_out_proj': # [N, H, D]
