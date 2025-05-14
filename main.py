@@ -24,8 +24,9 @@ def main(c: DictConfig):
     
     # optionally apply generalized scaling config
     if 'scaling' in c:
-        for k, v in flatten_dict(c.scaling).items():
-            OmegaConf.update(c, k, OmegaConf.select(c, k) * OmegaConf.select(c.scaling, k))
+        for k, scaling in flatten_dict(c.scaling).items():
+            orig_val = OmegaConf.select(c, k)
+            OmegaConf.update(c, k, scaling * orig_val)
         del c.scaling
 
     # run training job
