@@ -33,6 +33,8 @@ def main(c: DictConfig):
         del c.scaling
 
     # run training job
+    OmegaConf.resolve(c)
+    print(OmegaConf.to_yaml(c))
     train.train_and_evaluate(c)
 
 
