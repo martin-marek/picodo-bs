@@ -11,7 +11,10 @@ def main(c: DictConfig):
 
     # optionally load batch size config
     if 'bs_configs' in c:
-        c = OmegaConf.merge(c, c.bs_configs[f'bs{c.opt.batch_size}'])
+        bs_config = c.bs_configs[f'bs{c.opt.batch_size}']
+        for k, v in flatten_dict(bs_config).items():
+            if OmegaConf.select(c, k) is None:
+                OmegaConf.update(c, k, v)
         del c.bs_configs
 
     # optionally translate 1d scaling to generalized scaling config
