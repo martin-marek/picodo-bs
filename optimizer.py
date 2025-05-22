@@ -3,11 +3,11 @@ import jax.numpy as jnp
 import optax
 from optax import tree_utils as otu
 from omegaconf import DictConfig
-import multistep, utils
+import utils
 from typing import Optional, NamedTuple
 
 
-def get_optimizer(c: DictConfig, params, num_microbatch_steps: int, tokens_per_microbatch: int):
+def get_optimizer(c: DictConfig, params, num_opt_steps: int, tokens_per_opt_step: int):
     
     # get LR
     assert (c.peak_lr is not None) ^ ((c.peak_lr_scaled is not None) & (c.peak_lr_scaling is not None))
@@ -15,17 +15,13 @@ def get_optimizer(c: DictConfig, params, num_microbatch_steps: int, tokens_per_m
         c.peak_lr = c.peak_lr_scaling * c.peak_lr_scaled
 
     # get schedule
-    warmup_steps = int(c.warmup_frac * num_microbatch_steps)
-    lr_schedule = optax.schedules.warmup_cosine_decay_schedule(0, c.peak_lr, warmup_steps, num_microbatch_steps)
-    
-    # gradient accumulation wrapper
-    multistep_wrapper = multistep.singlesteps if c.grad_acc_steps==1 else multistep.multisteps
+    warmup_steps = int(c.warmup_frac * num_opt_steps)
+    lr_schedule = optax.schedules.warmup_cosine_decay_schedule(0, c.peak_lr, warmup_steps, num_opt_steps)
 
     # convert (t1 <-> b1), (t2 <-> b2)
     assert (c.b1 is None) | (c.t1 is None) # at most one can be specified in config
     assert (c.b2 is None) | (c.t2 is None) # at most one can be specified in config
     assert (c.muon_b1 is None) | (c.muon_t1 is None) # at most one can be specified in config
-    tokens_per_opt_step = c.grad_acc_steps * tokens_per_microbatch
     if c.b1 is None and c.t1 is not None: c.b1 = float(utils.halflife_to_decay(c.t1, tokens_per_opt_step))
     if c.b2 is None and c.t2 is not None: c.b2 = float(utils.halflife_to_decay(c.t2, tokens_per_opt_step))
     if c.t1 is None and c.b1 is not None: c.t1 = float(utils.decay_to_halflife(c.b1, tokens_per_opt_step))
@@ -39,20 +35,17 @@ def get_optimizer(c: DictConfig, params, num_microbatch_steps: int, tokens_per_m
         assert c.t2 is None
         assert c.weight_decay == 0
         signed = c.optimizer == 'signum'
-        grad_transform = multistep_wrapper(sgd, c.grad_acc_steps)
-        optimizer = optax.inject_hyperparams(grad_transform)(lr_schedule, c.b1, signed)
+        optimizer = optax.inject_hyperparams(sgd)(lr_schedule, c.b1, signed)
 
     if c.optimizer == 'adamw':
         assert c.b1 is not None
         assert c.b2 is not None
-        grad_transform = multistep_wrapper(optax.adamw, c.grad_acc_steps)
-        optimizer = optax.inject_hyperparams(grad_transform)(lr_schedule, c.b1, c.b2, weight_decay=c.weight_decay)
+        optimizer = optax.inject_hyperparams(optax.adamw)(lr_schedule, c.b1, c.b2, weight_decay=c.weight_decay)
     
     if c.optimizer == 'adafactor':
         assert c.b1 is None
         assert c.b2 is not None
-        grad_transform = multistep_wrapper(optax.adafactor, c.grad_acc_steps)
-        optimizer = optax.inject_hyperparams(grad_transform, static_args='min_dim_size_to_factor')(lr_schedule, min_dim_size_to_factor=128, decay_rate=c.b2)
+        optimizer = optax.inject_hyperparams(optax.adafactor, static_args='min_dim_size_to_factor')(lr_schedule, min_dim_size_to_factor=128, decay_rate=c.b2)
     
 
     if c.optimizer == 'muon':
@@ -60,9 +53,8 @@ def get_optimizer(c: DictConfig, params, num_microbatch_steps: int, tokens_per_m
         assert c.b2 is not None
         assert c.muon_lr is not None
         assert c.muon_b1 is not None
-        muon_lr = optax.schedules.warmup_cosine_decay_schedule(0, c.muon_lr, warmup_steps, num_microbatch_steps)
-        grad_transform = multistep_wrapper(muon, c.grad_acc_steps)
-        optimizer = optax.inject_hyperparams(grad_transform)(muon_lr, c.muon_b1, lr_schedule, c.b1, c.b2)
+        muon_lr = optax.schedules.warmup_cosine_decay_schedule(0, c.muon_lr, warmup_steps, num_opt_steps)
+        optimizer = optax.inject_hyperparams(muon)(muon_lr, c.muon_b1, lr_schedule, c.b1, c.b2)
 
     return optimizer
 
