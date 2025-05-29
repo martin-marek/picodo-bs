@@ -53,8 +53,8 @@ class MultiHeadAttention(nnx.Module):
     def __init__(self, c: DictConfig, rngs: nnx.Rngs, mesh):
         qkv_proj_init = sharded_init('attn_qkv_proj')
         out_proj_init = sharded_init('attn_out_proj')
-        self.qkv_proj = nnx.Einsum('bTD,SNDH->SbTNH', (3, c.N, c.D, c.H), kernel_init=qkv_proj_init, dtype=c.dtype, rngs=rngs)
-        self.out_proj = nnx.Einsum('bTNH,NHD->bTD', (c.N, c.H, c.D),  kernel_init=out_proj_init, dtype=c.dtype, rngs=rngs)
+        self.qkv_proj = nnx.Einsum('BTd,SNdH->SBTNH', (3, c.N, c.D, c.H), kernel_init=qkv_proj_init, dtype=c.dtype, rngs=rngs)
+        self.out_proj = nnx.Einsum('BTnh,nhD->BTD', (c.N, c.H, c.D),  kernel_init=out_proj_init, dtype=c.dtype, rngs=rngs)
         self.query_norm = nnx.RMSNorm(c.H, use_scale=False, dtype=c.dtype, rngs=rngs)
         self.key_norm = nnx.RMSNorm(c.H, use_scale=False, dtype=c.dtype, rngs=rngs)
         if c.use_flash_attn and jax.devices()[0].platform == 'tpu' and (c.H % 128 != 0):
