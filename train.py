@@ -15,7 +15,7 @@ from jax.sharding import PartitionSpec as P
 from omegaconf.dictconfig import DictConfig
 
 
-@partial(jax.jit, static_argnames='model_graphdef')
+@partial(jax.jit, static_argnames=('model_graphdef', 'pad'))
 def loss_fn(model_state, model_graphdef, x, pad=False): # [B, T]
     model = nnx.merge(model_graphdef, model_state)
     y = jnp.roll(x, -1, axis=1)
@@ -119,12 +119,11 @@ def train_and_evaluate(c: DictConfig):
             if c.opt.grad_acc_steps > 1:
                 batches = ds_train[step*c.opt.grad_acc_steps:(step+1)*c.opt.grad_acc_steps]
                 opt_state, batch_loss = train_step_grad_acc(opt_state, opt_graphdef, model_graphdef, batches)
-                
+            
+            # logging
             train_loss_sum += batch_loss
             train_loss_num += 1
-
-            # logging
-            if (c.num_log_steps*(step+1)) % num_opt_steps < c.num_log_steps:
+            if train_loss_num * tokens_per_opt_step >= c.log_every_tokens:
                 metrics = {}
                 metrics['train_loss'] = train_loss_sum / train_loss_num
                 metrics['train_tokens_seen'] = (step+1) * tokens_per_opt_step
