@@ -1,3 +1,4 @@
+import math
 import jax
 import jax.numpy as jnp
 import optax
@@ -10,7 +11,7 @@ from flax import nnx
 from optax import tree_utils as otu
 from tqdm.auto import tqdm
 from jax.experimental.mesh_utils import create_device_mesh
-from jax.sharding import Mesh, NamedSharding
+from jax.sharding import Mesh
 from jax.sharding import PartitionSpec as P
 from omegaconf.dictconfig import DictConfig
 
@@ -74,8 +75,11 @@ def train_and_evaluate(c: DictConfig):
     assert c.model.N % c.num_tp_devices == 0
 
     # model
+    c.model.V = int(math.ceil(c.model.V / mesh.shape['data'])) * mesh.shape['data']  # round V up to enable sharding
     model = model_lib.create_sharded_model(c.model, mesh, key_model)
     model_graphdef, model_state = nnx.split(model)
+
+    # get num. model parameters
     n_params = {
         'n_param_nonembed': 12 * c.model.L * c.model.D**2,
         'n_param_embed': c.model.D * c.model.V,
@@ -83,6 +87,10 @@ def train_and_evaluate(c: DictConfig):
     }
     for k, v in n_params.items():
         print(f'{k}={v:_}')
+
+    # print layer shapes
+    jax.debug.visualize_array_sharding(model.token_embed_in.embedding.value)
+    # jax.tree.map_with_path(lambda path, p: print(f'{jax.tree_util.keystr(path)}: {p.shape}'), model_state)
 
     # dataset
     if (c.num_tokens_train is None) and (c.tokens_params_ratio is not None):
@@ -96,7 +104,6 @@ def train_and_evaluate(c: DictConfig):
     tx = optimizer_lib.get_optimizer(c.opt, model_state, num_opt_steps, tokens_per_opt_step)
     optimizer = nnx.Optimizer(model, tx)
     opt_graphdef, opt_state = nnx.split(optimizer)
-    # jax.tree.map_with_path(lambda path, p: print(f'{jax.tree_util.keystr(path)}: {p.shape}'), opt_state.opt_state)
 
     # start wandb
     if jax.process_index() == 0:
@@ -117,7 +124,7 @@ def train_and_evaluate(c: DictConfig):
 
             # train step (gradient accumulation)
             if c.opt.grad_acc_steps > 1:
-                batches = ds_train[step*c.opt.grad_acc_steps:(step+1)*c.opt.grad_acc_steps]
+                batches = ds_train[step*c.opt.grad_acc_steps:(step+1)*c.opt.grad_acc_steps] # [grad_acc, micro_batch, T]
                 opt_state, batch_loss = train_step_grad_acc(opt_state, opt_graphdef, model_graphdef, batches)
             
             # logging
