@@ -19,8 +19,8 @@ def loss_fn(model_state, model_graphdef, x, pad=False): # [B, T]
     y = jnp.roll(x, -1, axis=1)
     loss_mask = data.pad_mask(x) if pad else jnp.ones(x.shape, dtype=bool)
     loss_mask = loss_mask.at[:, -1].set(False)
-    logits = model(x)
-    losses = optax.softmax_cross_entropy_with_integer_labels(logits, y)
+    logits = model(x) # [B, T, V]
+    losses = optax.softmax_cross_entropy_with_integer_labels(logits, y) # [B, T]
     return (losses * loss_mask).sum() / loss_mask.sum()
 
 
@@ -71,11 +71,11 @@ def train_and_evaluate(c: DictConfig):
     print('sharding mesh:', ', '.join(f'{k}={v}' for k, v in mesh.shape.items()))
 
     # model
-    c.model.V = int(math.ceil(c.model.V / mesh.shape['data'])) * mesh.shape['data']  # round V up to enable sharding
+    c.model.V = int(math.ceil(c.model.V / jax.device_count()) * jax.device_count()) # round V up to enable sharding
     model = model_lib.create_sharded_model(c.model, mesh, key_model)
     model_graphdef, model_state = nnx.split(model)
-    print('model sharding:')
-    jax.debug.visualize_array_sharding(model.token_embed_in.embedding.value)
+    # print('model sharding:')
+    # jax.debug.visualize_array_sharding(model.token_embed_in.embedding.value)
     # jax.tree.map_with_path(lambda path, p: print(f'{jax.tree_util.keystr(path)}: {p.shape}'), model_state)
 
     # get num. model parameters
