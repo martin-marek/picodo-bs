@@ -3,17 +3,14 @@ import jax
 import jax.numpy as jnp
 import optax
 import wandb
-import data, utils
-import model as model_lib
-import optimizer as optimizer_lib
 from functools import partial
 from flax import nnx
 from optax import tree_utils as otu
 from tqdm.auto import tqdm
-from jax.experimental.mesh_utils import create_device_mesh
-from jax.sharding import Mesh
-from jax.sharding import PartitionSpec as P
 from omegaconf.dictconfig import DictConfig
+import data, utils
+import model as model_lib
+import optimizer as optimizer_lib
 
 
 @partial(jax.jit, static_argnames=('model_graphdef', 'pad'))
@@ -70,9 +67,8 @@ def train_and_evaluate(c: DictConfig):
     # all devices are aligned across a single mesh axis called 'data'
     # we use FSDP to shard data, model, and optimzier parameters across this axis
     num_fsdp_devices = jax.device_count() // c.num_tp_devices
-    mesh = Mesh(create_device_mesh((num_fsdp_devices, c.num_tp_devices)), ('data', 'model'))
+    mesh = jax.make_mesh((num_fsdp_devices, c.num_tp_devices), ('data', 'model'))
     print('sharding mesh:', ', '.join(f'{k}={v}' for k, v in mesh.shape.items()))
-    assert c.model.N % c.num_tp_devices == 0
 
     # model
     c.model.V = int(math.ceil(c.model.V / mesh.shape['data'])) * mesh.shape['data']  # round V up to enable sharding
