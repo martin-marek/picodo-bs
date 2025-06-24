@@ -34,6 +34,7 @@ class TransformerDecoder(nnx.Module):
         # project back to vocabulary
         h = self.out_ln(h)
         logits = self.token_embed_out.attend(h.astype(jnp.float32)) # [B, T, V]
+        logits = jax.lax.with_sharding_constraint(logits, P('data', None, 'model'))
         return logits
 
 
@@ -150,7 +151,7 @@ def sharded_init(layer_type: str):
         case 'embedding_in': # [V, D]
             return nnx.with_partitioning(embed_init, ('data', 'model'))
         case 'embedding_out': # [V, D]
-            return nnx.with_partitioning(embed_init, ('data', 'model'))
+            return nnx.with_partitioning(embed_init, ('model', 'data'))
         case 'attn_qkv_proj': # [3, N, D, H]
             return nnx.with_partitioning(kernel_init, (None, 'model', 'data', None))
         case 'attn_out_proj': # [N, H, D]
