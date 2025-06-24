@@ -25,6 +25,7 @@ class TransformerDecoder(nnx.Module):
 
         # token embedding
         h = self.token_embed_in(x) # [B, T, D]
+        h = jax.lax.with_sharding_constraint(h, P('data', None, 'model'))
         
         # transformer blocks
         for block in self.blocks:
