@@ -78,6 +78,9 @@ def train_and_evaluate(c: DictConfig):
     c.model.V = int(math.ceil(c.model.V / mesh.shape['data'])) * mesh.shape['data']  # round V up to enable sharding
     model = model_lib.create_sharded_model(c.model, mesh, key_model)
     model_graphdef, model_state = nnx.split(model)
+    print('model sharding:')
+    jax.debug.visualize_array_sharding(model.token_embed_in.embedding.value)
+    # jax.tree.map_with_path(lambda path, p: print(f'{jax.tree_util.keystr(path)}: {p.shape}'), model_state)
 
     # get num. model parameters
     n_params = {
@@ -87,10 +90,6 @@ def train_and_evaluate(c: DictConfig):
     }
     for k, v in n_params.items():
         print(f'{k}={v:_}')
-
-    # print layer shapes
-    jax.debug.visualize_array_sharding(model.token_embed_in.embedding.value)
-    # jax.tree.map_with_path(lambda path, p: print(f'{jax.tree_util.keystr(path)}: {p.shape}'), model_state)
 
     # dataset
     if (c.num_tokens_train is None) and (c.tokens_params_ratio is not None):
