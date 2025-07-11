@@ -45,7 +45,7 @@ def get_optimizer(c: DictConfig, params, num_opt_steps: int, tokens_per_opt_step
     if c.optimizer == 'adafactor':
         assert c.b1 is None
         assert c.b2 is not None
-        optimizer = optax.inject_hyperparams(optax.adafactor, static_args='min_dim_size_to_factor')(lr_schedule, min_dim_size_to_factor=128, decay_rate=c.b2)
+        optimizer = optax.inject_hyperparams(optax.adafactor, static_args='min_dim_size_to_factor')(lr_schedule, min_dim_size_to_factor=128, decay_rate=c.b2, weight_decay_rate=c.weight_decay)
     
 
     if c.optimizer == 'muon':
