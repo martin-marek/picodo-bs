@@ -26,17 +26,20 @@ def loss_fn(model_state, model_graphdef, x, pad=False): # [B, T]
     return (losses * loss_mask).sum() / loss_mask.sum()
 
 
-@partial(jax.jit, static_argnames=('opt_graphdef', 'model_graphdef'), donate_argnames=('opt_state'))
+@partial(jax.jit, static_argnames=('opt_graphdef', 'model_graphdef'))
 def train_step(opt_state, opt_graphdef, model_graphdef, batch):
-    loss, grads = jax.value_and_grad(loss_fn)(opt_state.model, model_graphdef, batch)
+    param_dtype = opt_state.model['token_embed_in']['embedding'].value.dtype
+    model_state = jax.tree.map(lambda x: x.astype(jnp.float32), opt_state.model) # compute gradients in fp32
+    loss, grads = jax.value_and_grad(loss_fn)(model_state, model_graphdef, batch)
     print('grad dtype:', grads['token_embed_in']['embedding'].value.dtype)
+    grads = jax.tree.map(lambda x: x.astype(param_dtype), grads) # cast grads back to param dtype
     optimizer = nnx.merge(opt_graphdef, opt_state)
     optimizer.update(grads)
     opt_state = nnx.state(optimizer)
     return opt_state, loss
 
 
-@partial(jax.jit, static_argnames=('opt_graphdef', 'model_graphdef'), donate_argnames=('opt_state'))
+@partial(jax.jit, static_argnames=('opt_graphdef', 'model_graphdef'))
 def train_step_grad_acc(opt_state, opt_graphdef, model_graphdef, batches):
     n_batch = len(batches)
     loss_mean = 0
