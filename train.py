@@ -134,7 +134,6 @@ def train_and_evaluate(c: DictConfig):
                 metrics = {}
                 metrics['train_loss'] = train_loss_sum / train_loss_num
                 metrics['train_tokens_seen'] = (step+1) * tokens_per_opt_step
-                metrics['learning_rate'] = opt_state.opt_state.hyperparams['learning_rate'].value
                 if jax.process_index() == 0:
                     wandb.log(metrics, step)
                     pbar.set_postfix_str(f'loss={metrics["train_loss"]:.2f}')

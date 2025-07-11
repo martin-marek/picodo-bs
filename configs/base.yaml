@@ -47,3 +47,4 @@ opt:
   muon_t1: null # units: num. of tokens
   b2_min: null
   weight_decay: 0
+  clip_by_global_norm: null
