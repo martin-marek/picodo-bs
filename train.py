@@ -20,13 +20,16 @@ def loss_fn(model_state, model_graphdef, x, pad=False): # [B, T]
     loss_mask = data.pad_mask(x) if pad else jnp.ones(x.shape, dtype=bool)
     loss_mask = loss_mask.at[:, -1].set(False)
     logits = model(x) # [B, T, V]
+    print(f'{logits.dtype=}')
     losses = optax.softmax_cross_entropy_with_integer_labels(logits, y) # [B, T]
+    print(f'{losses.dtype=}')
     return (losses * loss_mask).sum() / loss_mask.sum()
 
 
 @partial(jax.jit, static_argnames=('opt_graphdef', 'model_graphdef'), donate_argnames=('opt_state'))
 def train_step(opt_state, opt_graphdef, model_graphdef, batch):
     loss, grads = jax.value_and_grad(loss_fn)(opt_state.model, model_graphdef, batch)
+    print('grad dtype:', grads['token_embed_in']['embedding'].value.dtype)
     optimizer = nnx.merge(opt_graphdef, opt_state)
     optimizer.update(grads)
     opt_state = nnx.state(optimizer)
@@ -74,9 +77,7 @@ def train_and_evaluate(c: DictConfig):
     c.model.V = int(math.ceil(c.model.V / jax.device_count()) * jax.device_count()) # round V up to enable sharding
     model = model_lib.create_sharded_model(c.model, mesh, key_model)
     model_graphdef, model_state = nnx.split(model)
-    # print('model sharding:')
-    # jax.debug.visualize_array_sharding(model.token_embed_in.embedding.value)
-    # jax.tree.map_with_path(lambda path, p: print(f'{jax.tree_util.keystr(path)}: {p.shape}'), model_state)
+    print('model param dtype:', model.token_embed_in.embedding.value.dtype)
 
     # get num. model parameters
     n_params = {
@@ -99,6 +100,7 @@ def train_and_evaluate(c: DictConfig):
     tx = optimizer_lib.get_optimizer(c.opt, model_state, num_opt_steps, tokens_per_opt_step)
     optimizer = nnx.Optimizer(model, tx)
     opt_graphdef, opt_state = nnx.split(optimizer)
+    # print(optimizer.opt_state.inner_state)
 
     # start wandb
     if jax.process_index() == 0:
