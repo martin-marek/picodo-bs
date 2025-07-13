@@ -34,8 +34,7 @@ def train_step(key, opt_state, opt_graphdef, model_graphdef, batch, bf16=False):
     optimizer = nnx.merge(opt_graphdef, opt_state)
     optimizer.update(grads)
     opt_state = nnx.state(optimizer)
-    if bf16: opt_state['model'] = jochastic.tree_stochastic_round_bf16(key, opt_state['model'])
-
+    if bf16: opt_state = jochastic.tree_stochastic_round_bf16(key, opt_state)
     return opt_state, loss
 
 
