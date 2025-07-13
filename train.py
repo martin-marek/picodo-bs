@@ -37,7 +37,7 @@ def train_step(key, opt_state, opt_graphdef, model_graphdef, batch, simulate_bf1
 
     # optionally simulate lower-precision training
     # during fwd and bwd pass, we keep all weights in fp32 to force jax to compute fp32 activations and grads
-    # after every optimzier step we round model and optimizer state to bf16 to simulate bf16 trainig
+    # after every optimzier step we round model and optimizer state to bf16 to simulate bf16 weights
     if simulate_bf16:
         key_tree = otu.tree_split_key_like(key, opt_state)
         round_leaf = lambda key, x: stochastic_round.to_bf16(key, x).astype(jnp.float32)
