@@ -8,10 +8,10 @@ from flax import nnx
 from optax import tree_utils as otu
 from tqdm.auto import tqdm
 from omegaconf.dictconfig import DictConfig
-import jochastic
 import data, utils
 import model as model_lib
 import optimizer as optimizer_lib
+from stochastic_round import tree_stochastic_round_bf16
 
 
 @partial(jax.jit, static_argnames=('model_graphdef', 'pad'))
@@ -34,7 +34,7 @@ def train_step(key, opt_state, opt_graphdef, model_graphdef, batch, bf16=False):
     optimizer = nnx.merge(opt_graphdef, opt_state)
     optimizer.update(grads)
     opt_state = nnx.state(optimizer)
-    if bf16: opt_state = jochastic.tree_stochastic_round_bf16(key, opt_state)
+    if bf16: opt_state = tree_stochastic_round_bf16(key, opt_state)
     return opt_state, loss
 
 
