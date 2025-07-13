@@ -109,7 +109,6 @@ def train_and_evaluate(c: DictConfig):
     tx = optimizer_lib.get_optimizer(c.opt, model_state, num_opt_steps, tokens_per_opt_step)
     optimizer = nnx.Optimizer(model, tx)
     opt_graphdef, opt_state = nnx.split(optimizer)
-    # print(optimizer.opt_state.inner_state)
 
     # start wandb
     if jax.process_index() == 0:
