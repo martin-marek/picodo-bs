@@ -11,7 +11,7 @@ from omegaconf.dictconfig import DictConfig
 import data, utils
 import model as model_lib
 import optimizer as optimizer_lib
-from stochastic_round import tree_stochastic_round_bf16
+import stochastic_round
 
 
 @partial(jax.jit, static_argnames=('model_graphdef', 'pad'))
@@ -25,8 +25,8 @@ def loss_fn(model_state, model_graphdef, x, pad=False): # [B, T]
     return (losses * loss_mask).sum() / loss_mask.sum()
 
 
-@partial(jax.jit, static_argnames=('opt_graphdef', 'model_graphdef', 'bf16'))
-def train_step(key, opt_state, opt_graphdef, model_graphdef, batch, bf16=False):
+@partial(jax.jit, static_argnames=('opt_graphdef', 'model_graphdef', 'simulate_bf16'))
+def train_step(key, opt_state, opt_graphdef, model_graphdef, batch, simulate_bf16=False):
     param_dtype = opt_state.model['token_embed_in']['embedding'].value.dtype
     model_state = jax.tree.map(lambda x: x.astype(jnp.float32), opt_state.model) # compute gradients in fp32
     loss, grads = jax.value_and_grad(loss_fn)(model_state, model_graphdef, batch)
@@ -34,7 +34,15 @@ def train_step(key, opt_state, opt_graphdef, model_graphdef, batch, bf16=False):
     optimizer = nnx.merge(opt_graphdef, opt_state)
     optimizer.update(grads)
     opt_state = nnx.state(optimizer)
-    if bf16: opt_state = tree_stochastic_round_bf16(key, opt_state)
+
+    # optionally simulate lower-precision training
+    # during fwd and bwd pass, we keep all weights in fp32 to force jax to compute fp32 activations and grads
+    # after every optimzier step we round model and optimizer state to bf16 to simulate bf16 trainig
+    if simulate_bf16:
+        key_tree = otu.tree_split_key_like(key, opt_state)
+        round_leaf = lambda key, x: stochastic_round.to_bf16(key, x).astype(jnp.float32)
+        opt_state = jax.tree.map(round_leaf, key_tree, opt_state)
+    
     return opt_state, loss
 
 

@@ -2,14 +2,14 @@ import jax
 import jax.numpy as jnp
 
 
-def stochastic_round_bf16(key, x):
+def to_bf16(key, x):
     """
-    loosely based on https://github.com/nestordemeure/jochastic
-    with a major sampling bias fixed
+    Stochastically round fp32 input to bf16.
+    simplified implementation of https://github.com/nestordemeure/jochastic with a major sampling bias fixed
     """
     finfo = jnp.finfo(jnp.bfloat16)
 
-    # round x to two closest values
+    # round x (assumed to be in fp32) to two closest bf16 values
     # one of these values will be smaller than x, the other large
     # one of these values will be closer to x (default rounding), the other will be farther away
     x_closer = x.astype(jnp.bfloat16)
@@ -17,26 +17,10 @@ def stochastic_round_bf16(key, x):
     direction = jnp.where(error > 0, finfo.max, finfo.min)
     x_farther = jnp.nextafter(x_closer, direction)
 
-    # randomly pick rounding direction to preserve orig. value in expectation 
+    # we randomly round to either the closer or farther value s.t. we get the true value in expectation
     ulp = jnp.abs(x_farther.astype(jnp.float32) - x_closer.astype(jnp.float32))
     rand_unif = jax.random.uniform(key=key, shape=x.shape)
     use_closer = rand_unif * ulp > jnp.abs(error)
     x_stoch = jnp.where(use_closer, x_closer, x_farther)
     
-    # return *rounded* value in fp32
-    return x_stoch.astype(jnp.float32)
-
-
-def _random_split_like_tree(key, tree):
-    """
-    Takes a random number generator key and a tree, splits the key into a properly structured tree.
-    credit: https://github.com/google/jax/discussions/9508#discussioncomment-2144076
-    """
-    tree_structure = jax.tree.structure(tree)
-    key_leaves = jax.random.split(key, tree_structure.num_leaves)
-    return jax.tree.unflatten(tree_structure, key_leaves)
-
-
-def tree_stochastic_round_bf16(key, tree):
-    key_tree = _random_split_like_tree(key, tree)
-    return jax.tree.map(stochastic_round_bf16, key_tree, tree)
+    return x_stoch
