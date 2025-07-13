@@ -8,6 +8,7 @@ from flax import nnx
 from optax import tree_utils as otu
 from tqdm.auto import tqdm
 from omegaconf.dictconfig import DictConfig
+import jochastic
 import data, utils
 import model as model_lib
 import optimizer as optimizer_lib
@@ -20,22 +21,21 @@ def loss_fn(model_state, model_graphdef, x, pad=False): # [B, T]
     loss_mask = data.pad_mask(x) if pad else jnp.ones(x.shape, dtype=bool)
     loss_mask = loss_mask.at[:, -1].set(False)
     logits = model(x) # [B, T, V]
-    print(f'{logits.dtype=}')
     losses = optax.softmax_cross_entropy_with_integer_labels(logits, y) # [B, T]
-    print(f'{losses.dtype=}')
     return (losses * loss_mask).sum() / loss_mask.sum()
 
 
-@partial(jax.jit, static_argnames=('opt_graphdef', 'model_graphdef'))
-def train_step(opt_state, opt_graphdef, model_graphdef, batch):
+@partial(jax.jit, static_argnames=('opt_graphdef', 'model_graphdef', 'bf16'))
+def train_step(key, opt_state, opt_graphdef, model_graphdef, batch, bf16=False):
     param_dtype = opt_state.model['token_embed_in']['embedding'].value.dtype
     model_state = jax.tree.map(lambda x: x.astype(jnp.float32), opt_state.model) # compute gradients in fp32
     loss, grads = jax.value_and_grad(loss_fn)(model_state, model_graphdef, batch)
-    print('grad dtype:', grads['token_embed_in']['embedding'].value.dtype)
     grads = jax.tree.map(lambda x: x.astype(param_dtype), grads) # cast grads back to param dtype
     optimizer = nnx.merge(opt_graphdef, opt_state)
     optimizer.update(grads)
     opt_state = nnx.state(optimizer)
+    if bf16: opt_state['model'] = jochastic.tree_stochastic_round_bf16(key, opt_state['model'])
+
     return opt_state, loss
 
 
@@ -67,7 +67,7 @@ def train_and_evaluate(c: DictConfig):
 
     # get model and dataset rng seed
     key = jax.random.key(c.seed)
-    key_model, key_dataset = jax.random.split(key)
+    key, key_model, key_dataset = jax.random.split(key, 3)
 
     # sharding
     # all devices are aligned across a single mesh axis called 'data'
@@ -80,7 +80,6 @@ def train_and_evaluate(c: DictConfig):
     c.model.V = int(math.ceil(c.model.V / jax.device_count()) * jax.device_count()) # round V up to enable sharding
     model = model_lib.create_sharded_model(c.model, mesh, key_model)
     model_graphdef, model_state = nnx.split(model)
-    print('model param dtype:', model.token_embed_in.embedding.value.dtype)
 
     # get num. model parameters
     n_params = {
@@ -120,7 +119,9 @@ def train_and_evaluate(c: DictConfig):
             # training step (no accumulation)
             if c.opt.grad_acc_steps == 1:
                 batch = ds_train[step]
-                opt_state, batch_loss = train_step(opt_state, opt_graphdef, model_graphdef, batch)
+                key, key_round = jax.random.split(key)
+                use_bf16 = jnp.dtype(c.model.param_dtype) == jnp.bfloat16
+                opt_state, batch_loss = train_step(key_round, opt_state, opt_graphdef, model_graphdef, batch, use_bf16)
 
             # train step (gradient accumulation)
             if c.opt.grad_acc_steps > 1:
