@@ -27,15 +27,13 @@ def loss_fn(model_state, model_graphdef, x, pad=False): # [B, T]
 
 @partial(jax.jit, static_argnames=('opt_graphdef', 'model_graphdef', 'simulate_bf16'))
 def train_step(key, opt_state, opt_graphdef, model_graphdef, batch, simulate_bf16=False):
-    param_dtype = opt_state.model['token_embed_in']['embedding'].value.dtype
-    model_state = jax.tree.map(lambda x: x.astype(jnp.float32), opt_state.model) # compute gradients in fp32
-    loss, grads = jax.value_and_grad(loss_fn)(model_state, model_graphdef, batch)
-    grads = jax.tree.map(lambda x: x.astype(param_dtype), grads) # cast grads back to param dtype
+    # traing step in fp32
+    loss, grads = jax.value_and_grad(loss_fn)(opt_state.model, model_graphdef, batch)
     optimizer = nnx.merge(opt_graphdef, opt_state)
     optimizer.update(grads)
     opt_state = nnx.state(optimizer)
 
-    # optionally simulate lower-precision training
+    # optionally simulate bf16 weights
     # during fwd and bwd pass, we keep all weights in fp32 to force jax to compute fp32 activations and grads
     # after every optimzier step we round model and optimizer state to bf16 to simulate bf16 weights
     if simulate_bf16:
@@ -126,8 +124,7 @@ def train_and_evaluate(c: DictConfig):
             if c.opt.grad_acc_steps == 1:
                 batch = ds_train[step]
                 key, key_round = jax.random.split(key)
-                use_bf16 = jnp.dtype(c.model.param_dtype) == jnp.bfloat16
-                opt_state, batch_loss = train_step(key_round, opt_state, opt_graphdef, model_graphdef, batch, use_bf16)
+                opt_state, batch_loss = train_step(key_round, opt_state, opt_graphdef, model_graphdef, batch, c.opt.simulate_bf16)
 
             # train step (gradient accumulation)
             if c.opt.grad_acc_steps > 1:

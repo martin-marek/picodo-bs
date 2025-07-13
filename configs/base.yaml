@@ -23,7 +23,6 @@ model:
   N: ${floordiv:${model.D}, ${model.H}} # num. attention heads
   T: null # context/sequence length
   V: null # vocab size -> must match dataset tokenizer!
-  param_dtype: 'float32'
   remat: false
   use_flash_attn: true
 
@@ -47,3 +46,4 @@ opt:
   b2_min: null
   weight_decay: 0
   clip_by_global_norm: null
+  simulate_bf16: False
