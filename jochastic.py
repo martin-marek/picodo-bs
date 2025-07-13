@@ -50,7 +50,7 @@ def _pseudorandom_bool(prngKey, result, alternative_result, error):
 
 def stochastic_round_bf16(key, x_fp32):
     x_bf16 = x_fp32.astype(jnp.bfloat16)
-    error = x_fp32 - x_bf16
+    error = x_fp32 - x_bf16.astype(jnp.float32)
     x_bf16_alt = _misround_result(x_bf16, error)
     use_orig = _pseudorandom_bool(key, x_bf16, x_bf16_alt, error)
     x_bf16_stoch = jnp.where(use_orig, x_bf16, x_bf16_alt)
