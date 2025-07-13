@@ -55,7 +55,7 @@ def get_optimizer(c: DictConfig, params, num_opt_steps: int, tokens_per_opt_step
         muon_lr = optax.schedules.warmup_cosine_decay_schedule(0, c.muon_lr, warmup_steps, num_opt_steps)
         optimizer = muon(muon_lr, c.muon_b1, lr_schedule, c.b1, c.b2)
 
-    if c.clip_by_global_norm is not None:
+    if c.clip_by_global_norm != 0:
         optimizer = optax.chain(optax.clip_by_global_norm(c.clip_by_global_norm), optimizer)
 
     return optimizer
