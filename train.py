@@ -75,8 +75,6 @@ def train_and_evaluate(c: DictConfig):
     key, key_model, key_dataset = jax.random.split(key, 3)
 
     # sharding
-    # all devices are aligned across a single mesh axis called 'data'
-    # we use FSDP to shard data, model, and optimzier parameters across this axis
     num_fsdp_devices = jax.device_count() // c.num_tp_devices
     mesh = jax.make_mesh((num_fsdp_devices, c.num_tp_devices), ('data', 'model'))
     print('sharding mesh:', ', '.join(f'{k}={v}' for k, v in mesh.shape.items()))
