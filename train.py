@@ -11,7 +11,7 @@ from omegaconf.dictconfig import DictConfig
 import data, utils
 import model as model_lib
 import optimizer as optimizer_lib
-import stochastic_round
+import precision_utils
 
 
 @partial(jax.jit, static_argnames=('model_graphdef', 'pad'))
@@ -25,26 +25,16 @@ def loss_fn(model_state, model_graphdef, x, pad=False): # [B, T]
     return (losses * loss_mask).sum() / loss_mask.sum()
 
 
-@partial(jax.jit, static_argnames=('opt_graphdef', 'model_graphdef', 'simulate_bf16'))
-def train_step(key, opt_state, opt_graphdef, model_graphdef, batch, simulate_bf16=False):
-    # traing step in fp32
+@partial(jax.jit, static_argnames=('opt_graphdef', 'model_graphdef'), donate_argnames=('opt_state'))
+def train_step(opt_state, opt_graphdef, model_graphdef, batch):
     loss, grads = jax.value_and_grad(loss_fn)(opt_state.model, model_graphdef, batch)
     optimizer = nnx.merge(opt_graphdef, opt_state)
     optimizer.update(grads)
     opt_state = nnx.state(optimizer)
-
-    # optionally simulate bf16 weights
-    # during fwd and bwd pass, we keep all weights in fp32 to force jax to compute fp32 activations and grads
-    # after every optimzier step we round model and optimizer state to bf16 to simulate bf16 weights
-    if simulate_bf16:
-        key_tree = otu.tree_split_key_like(key, opt_state)
-        round_leaf = lambda key, x: stochastic_round.to_bf16(key, x).astype(jnp.float32)
-        opt_state = jax.tree.map(round_leaf, key_tree, opt_state)
-    
     return opt_state, loss
 
 
-@partial(jax.jit, static_argnames=('opt_graphdef', 'model_graphdef'))
+@partial(jax.jit, static_argnames=('opt_graphdef', 'model_graphdef'), donate_argnames=('opt_state'))
 def train_step_grad_acc(opt_state, opt_graphdef, model_graphdef, batches):
     n_batch = len(batches)
     loss_mean = 0
@@ -66,6 +56,23 @@ def train_step_grad_acc(opt_state, opt_graphdef, model_graphdef, batches):
 def eval_step(model_state, model_graphdef, dataset, pad=False):
     losses = jax.lax.map(partial(loss_fn, model_state, model_graphdef, pad=pad), dataset)
     return losses.mean()
+
+
+@partial(jax.jit, static_argnames=('rounding'))
+def simulate_bf16_weights(key, opt_state, rounding):
+    # we keep jax.grad input in fp32 to force jax to compute fp32 grads
+    # we update model and optimizer state in fp32
+    # after optimzier step we optionally round model state to bf16 to simulate bf16 weights
+    if rounding == 'closest':
+        round_leaf = lambda x: x.astype(jnp.bfloat16).astype(jnp.float32)
+        opt_state['model'] = jax.tree.map(round_leaf, opt_state['model'])
+    elif rounding == 'stochastic':
+        key_tree = otu.tree_split_key_like(key, opt_state['model'])
+        round_leaf = lambda key, x: precision_utils.to_bf16_stochastic(key, x).astype(jnp.float32)
+        opt_state['model'] = jax.tree.map(round_leaf, key_tree, opt_state['model'])
+    else:
+        raise NotImplementedError
+    return opt_state
 
 
 def train_and_evaluate(c: DictConfig):
@@ -121,14 +128,18 @@ def train_and_evaluate(c: DictConfig):
             # training step (no accumulation)
             if c.opt.grad_acc_steps == 1:
                 batch = ds_train[step]
-                key, key_round = jax.random.split(key)
-                opt_state, batch_loss = train_step(key_round, opt_state, opt_graphdef, model_graphdef, batch, c.opt.simulate_bf16)
+                opt_state, batch_loss = train_step(opt_state, opt_graphdef, model_graphdef, batch)
 
             # train step (gradient accumulation)
             if c.opt.grad_acc_steps > 1:
                 batches = ds_train[step*c.opt.grad_acc_steps:(step+1)*c.opt.grad_acc_steps] # [grad_acc, micro_batch, T]
                 opt_state, batch_loss = train_step_grad_acc(opt_state, opt_graphdef, model_graphdef, batches)
             
+            # optionally simulate bf16 weights
+            if c.model.simulate_bf16 is not None:
+                key, key_round = jax.random.split(key)
+                opt_state = simulate_bf16_weights(key_round, opt_state, c.model.simulate_bf16)
+
             # logging
             train_loss_sum += batch_loss
             train_loss_num += 1
@@ -136,6 +147,7 @@ def train_and_evaluate(c: DictConfig):
                 metrics = {}
                 metrics['train_loss'] = train_loss_sum / train_loss_num
                 metrics['train_tokens_seen'] = (step+1) * tokens_per_opt_step
+                metrics['excess_precision'] = precision_utils.get_bf16_excess_precision(opt_state['model'])
                 if jax.process_index() == 0:
                     wandb.log(metrics, step)
                     pbar.set_postfix_str(f'loss={metrics["train_loss"]:.2f}')
