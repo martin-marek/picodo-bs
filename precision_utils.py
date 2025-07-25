@@ -3,15 +3,6 @@ import jax.numpy as jnp
 import operator as op
 
 
-def get_bf16_excess_precision(tree):
-    # check that the model is *really* stored in bf16
-    # this is to avoid any sneaky jit compiler excess precision
-    # https://github.com/jax-ml/jax/issues/23007
-    leaf_error = jax.tree.map(lambda x: jnp.abs(x-x.astype(jnp.bfloat16)).sum(), tree)
-    tree_error = jax.tree.reduce(op.add, leaf_error)
-    return tree_error
-
-
 @jax.jit
 def to_bf16_stochastic(key, source):
     """

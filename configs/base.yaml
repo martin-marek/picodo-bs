@@ -11,9 +11,10 @@ log_every_tokens: 1_000_000
 num_tokens_valid: 1_000_000
 pad_eval: false
 wandb_project: 'picodo-bs'
-wandb_mode: 'online'
+wandb_mode: 'disabled'
 run_name: null
 num_tp_devices: 1 # optional tensor parallelism
+profile: false # optionally run profiling
 
 model:
   D: null # model/embed/qkv dim
@@ -48,4 +49,3 @@ opt:
   b2_min: null
   weight_decay: 0
   clip_by_global_norm: null
-  simulate_bf16: False
