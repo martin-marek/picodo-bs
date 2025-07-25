@@ -120,7 +120,7 @@ def train_and_evaluate(c: DictConfig):
                 # train step (gradient accumulation)
                 if c.opt.grad_acc_steps > 1:
                     batches = ds_train[step*c.opt.grad_acc_steps:(step+1)*c.opt.grad_acc_steps] # [grad_acc, micro_batch, T]
-                    opt_state, batch_loss = train_step_grad_acc(opt_state, opt_graphdef, batches)
+                    opt_state, batch_loss = train_step_grad_acc(opt_state, opt_graphdef, model_graphdef, batches)
                 
                 # logging
                 train_loss_sum += batch_loss
