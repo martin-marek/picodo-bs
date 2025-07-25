@@ -26,7 +26,7 @@ def loss_fn(model_state, model_graphdef, x, pad=False): # [B, T]
 
 
 @partial(jax.jit, static_argnames=('opt_graphdef', 'model_graphdef'), donate_argnames=('opt_state'))
-def train_step(opt_state, opt_graphdef, model_graphdef, batch, simulate_bf16=False):
+def train_step(opt_state, opt_graphdef, model_graphdef, batch):
     loss, grads = jax.value_and_grad(loss_fn)(opt_state.model, model_graphdef, batch)
     optimizer = nnx.merge(opt_graphdef, opt_state)
     optimizer.update(grads)
