@@ -9,7 +9,7 @@ from flax import nnx
 from optax import tree_utils as otu
 from tqdm.auto import tqdm
 from omegaconf.dictconfig import DictConfig
-import data, utils
+import data, precision_utils, utils
 import model as model_lib
 import optimizer as optimizer_lib
 
@@ -25,30 +25,34 @@ def loss_fn(model_state, model_graphdef, x, pad=False): # [B, T]
     return (losses * loss_mask).sum() / loss_mask.sum()
 
 
-@partial(jax.jit, static_argnames=('opt_graphdef', 'model_graphdef'), donate_argnames=('opt_state'))
-def train_step(opt_state, opt_graphdef, model_graphdef, batch):
-    loss, grads = jax.value_and_grad(loss_fn)(opt_state.model, model_graphdef, batch)
+@partial(jax.jit, static_argnames=('opt_graphdef', 'model_graphdef', 'grad_dtype'), donate_argnames=('opt_state'))
+def train_step(key, opt_state, opt_graphdef, model_graphdef, batch, grad_dtype):
+    key, key_opt = jax.random.split(key)
+    value_and_grad_fn = precision_utils.value_and_grad_fp32 if (grad_dtype == 'float32') else jax.value_and_grad
+    loss, grads = value_and_grad_fn(loss_fn)(opt_state.model, model_graphdef, batch)
     optimizer = nnx.merge(opt_graphdef, opt_state)
-    optimizer.update(grads)
+    optimizer.update(key_opt, grads)
     opt_state = nnx.state(optimizer)
-    return opt_state, loss
+    return key, opt_state, loss
 
 
-@partial(jax.jit, static_argnames=('opt_graphdef', 'model_graphdef'), donate_argnames=('opt_state'))
-def train_step_grad_acc(opt_state, opt_graphdef, model_graphdef, batches):
+@partial(jax.jit, static_argnames=('opt_graphdef', 'model_graphdef', 'grad_dtype'), donate_argnames=('opt_state'))
+def train_step_grad_acc(key, opt_state, opt_graphdef, model_graphdef, batches, grad_dtype):
+    key, key_opt = jax.random.split(key)
     loss_mean = 0
-    grad_mean = otu.tree_zeros_like(opt_state.model)
+    grad_mean = otu.tree_zeros_like(opt_state.model, dtype=grad_dtype)
+    value_and_grad_fn = precision_utils.value_and_grad_fp32 if (grad_dtype == 'float32') else jax.value_and_grad
     def step_fn(i , args):
         grad_mean, loss_mean = args
-        batch_loss, batch_grads = jax.value_and_grad(loss_fn)(opt_state.model, model_graphdef, batches[i])
+        batch_loss, batch_grads = value_and_grad_fn(loss_fn)(opt_state.model, model_graphdef, batches[i])
         grad_mean = jax.tree.map(lambda m, g: (i*m + g) / (i+1), grad_mean, batch_grads)
         loss_mean = (i*loss_mean + batch_loss) / (i+1)
         return grad_mean, loss_mean
     grad_mean, loss_mean = jax.lax.fori_loop(0, len(batches), step_fn, (grad_mean, loss_mean))
     optimizer = nnx.merge(opt_graphdef, opt_state)
-    optimizer.update(grad_mean)
+    optimizer.update(key_opt, grad_mean)
     opt_state = nnx.state(optimizer)
-    return opt_state, loss_mean
+    return key, opt_state, loss_mean
 
 
 def eval_step(model_state, model_graphdef, dataset, pad=False):
@@ -97,8 +101,9 @@ def train_and_evaluate(c: DictConfig):
         num_opt_steps = len(ds_train) // c.opt.grad_acc_steps
         tokens_per_opt_step = c.opt.batch_size * c.model.T
         tx = optimizer_lib.get_optimizer(c.opt, num_opt_steps, tokens_per_opt_step)
-        optimizer = nnx.Optimizer(model, tx)
+        optimizer = optimizer_lib.Optimizer(model, tx, stochastic_round=c.opt.stochastic_round)
         opt_graphdef, opt_state = nnx.split(optimizer)
+        assert not (c.model.param_dtype == 'float32' and c.opt.grad_dtype == 'bfloat16'), 'bf16 grads of fp32 weights not supported'
 
         # start wandb
         if jax.process_index() == 0:
@@ -115,13 +120,13 @@ def train_and_evaluate(c: DictConfig):
 
                 # training step (no accumulation)
                 if c.opt.grad_acc_steps == 1:
-                    opt_state, batch_loss = train_step(opt_state, opt_graphdef, model_graphdef, ds_train[step])
+                    key, opt_state, batch_loss = train_step(key, opt_state, opt_graphdef, model_graphdef, ds_train[step], c.opt.grad_dtype)
 
                 # train step (gradient accumulation)
                 if c.opt.grad_acc_steps > 1:
                     batches = ds_train[step*c.opt.grad_acc_steps:(step+1)*c.opt.grad_acc_steps] # [grad_acc, micro_batch, T]
-                    opt_state, batch_loss = train_step_grad_acc(opt_state, opt_graphdef, model_graphdef, batches)
-                
+                    key, opt_state, batch_loss = train_step_grad_acc(key, opt_state, opt_graphdef, model_graphdef, batches, c.opt.grad_dtype)
+
                 # logging
                 train_loss_sum += batch_loss
                 train_loss_num += 1

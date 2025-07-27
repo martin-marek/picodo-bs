@@ -49,3 +49,5 @@ opt:
   b2_min: null
   weight_decay: 0
   clip_by_global_norm: null
+  grad_dtype: 'float32'
+  stochastic_round: false
