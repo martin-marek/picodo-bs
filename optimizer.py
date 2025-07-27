@@ -49,10 +49,13 @@ def apply_updates(
     keys = otu.tree_split_key_like(key, params)
     def leaf_update(p, u, key):
         if p is None: return None
-        out_dtype = jnp.asarray(p).dtype
-        p = jnp.asarray(p + u)
-        if stochastic_round: p = precision_utils.to_bf16_stochastic(key, p)
-        return p.astype(out_dtype)
+        param_dtype = jnp.asarray(p).dtype
+        if stochastic_round:
+            p = p.astype(jnp.float32) + u
+            p = precision_utils.to_bf16_stochastic(key, p)
+        else:
+            p += u
+        return p.astype(param_dtype)
     return jax.tree.map(leaf_update, params, updates, keys, is_leaf=lambda x: x is None)
 
 
