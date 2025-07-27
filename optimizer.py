@@ -209,6 +209,7 @@ def muon(
 def adafactor(
     learning_rate: optax.ScalarOrSchedule,
     decay_rate: float = 0.8,
+    clipping_threshold: Optional[float] = 1.0,
     min_dim_size_to_factor: int = 128,
 ) -> optax.GradientTransformation:
     """
@@ -217,6 +218,7 @@ def adafactor(
     """
     return optax.chain(
         factorized.scale_by_factored_rms(decay_rate=decay_rate, min_dim_size_to_factor=min_dim_size_to_factor),
+        optax.clip_by_block_rms(clipping_threshold) if clipping_threshold is not None else optax.identity(),
         optax.scale_by_learning_rate(learning_rate),
         optax.scale_by_param_block_rms(),
     )
