@@ -37,7 +37,7 @@ def train_step(key, opt_state, opt_graphdef, model_graphdef, batch, grad_dtype):
     # compute grads from multiple micro-batches (using gradient accumulation)
     if batch.ndim == 3:
         loss = 0
-        grads = otu.tree_zeros_like(opt_state.model, dtype=grad_dtype)
+        grads = otu.tree_zeros_like(opt_state.model, dtype=jnp.float32)
         value_and_grad_fn = precision_utils.value_and_grad_fp32 if (grad_dtype == 'float32') else jax.value_and_grad
         def step_fn(i , args):
             loss, grads = args
