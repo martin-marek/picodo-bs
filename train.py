@@ -44,7 +44,7 @@ def train_step(key, opt_state, opt_graphdef, model_graphdef, batch, grad_dtype):
             loss = (i*loss + batch_loss) / (i+1)
             grads = jax.tree.map(lambda m, g: (i*m + g) / (i+1), grads, batch_grads)
             return loss, grads
-        loss, grads = jax.lax.fori_loop(0, len(batch), step_fn, (grads, loss))
+        loss, grads = jax.lax.fori_loop(0, len(batch), step_fn, (loss, grads))
         
     # optimizer step
     optimizer = nnx.merge(opt_graphdef, opt_state)
