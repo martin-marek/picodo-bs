@@ -9,7 +9,7 @@ from flax import nnx
 from optax import tree_utils as otu
 from tqdm.auto import tqdm
 from omegaconf.dictconfig import DictConfig
-import data, precision_utils, utils
+import data, utils
 import model as model_lib
 import optimizer as optimizer_lib
 
@@ -28,7 +28,7 @@ def loss_fn(model_state, model_graphdef, x, pad=False): # [B, T]
 @partial(jax.jit, static_argnames=('opt_graphdef', 'model_graphdef', 'grad_dtype'), donate_argnames=('opt_state'))
 def train_step(key, opt_state, opt_graphdef, model_graphdef, batch, grad_dtype):
     key, key_opt = jax.random.split(key)
-    value_and_grad_fn = precision_utils.value_and_grad_fp32 if (grad_dtype == 'float32') else jax.value_and_grad
+    value_and_grad_fn = utils.value_and_grad_fp32 if (grad_dtype == 'float32') else jax.value_and_grad
 
     # compute grads from a single micro-batch
     if batch.ndim == 2:
@@ -38,7 +38,6 @@ def train_step(key, opt_state, opt_graphdef, model_graphdef, batch, grad_dtype):
     if batch.ndim == 3:
         loss = 0
         grads = otu.tree_zeros_like(opt_state.model, dtype=jnp.float32)
-        value_and_grad_fn = precision_utils.value_and_grad_fp32 if (grad_dtype == 'float32') else jax.value_and_grad
         def step_fn(i , args):
             loss, grads = args
             batch_loss, batch_grads = value_and_grad_fn(loss_fn)(opt_state.model, model_graphdef, batch[i])
