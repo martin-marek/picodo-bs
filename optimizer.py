@@ -7,7 +7,7 @@ from flax.nnx import filterlib
 from flax.nnx.training.optimizer import OptState, _wrap_optimizer_state
 from omegaconf import DictConfig
 from typing import Optional, NamedTuple
-import factorized, precision_utils, utils
+import factorized, utils
 
 
 class Optimizer(nnx.Optimizer):
@@ -52,7 +52,7 @@ def apply_updates(
         param_dtype = jnp.asarray(p).dtype
         if stochastic_round:
             p = p.astype(jnp.float32) + u
-            p = precision_utils.to_bf16_stochastic(key, p)
+            p = utils.to_bf16_stochastic(key, p)
         else:
             p += u
         return p.astype(param_dtype)
