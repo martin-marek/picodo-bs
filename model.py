@@ -43,7 +43,7 @@ class TransformerBlock(nnx.Module):
         self.ln1 = nnx.RMSNorm(c.D, use_scale=False, dtype=c.activ_dtype, param_dtype=c.param_dtype, rngs=rngs)
         self.ln2 = nnx.RMSNorm(c.D, use_scale=False, dtype=c.activ_dtype, param_dtype=c.param_dtype, rngs=rngs)
         self.attn = MultiHeadAttention(c, rngs, mesh)
-        self.mlp = Mlp(c, rngs)
+        self.mlp = MLP(c, rngs)
         
     def __call__(self, x): # [B, T, D]
         x = x + self.attn(self.ln1(x)) # attention block
@@ -130,7 +130,7 @@ def tpu_causal_flash_attention(q, k, v, mesh):
     return attention(q, k, v)
 
 
-class Mlp(nnx.Module):
+class MLP(nnx.Module):
     """Multilayer perceptron."""
     def __init__(self, c: DictConfig, rngs: nnx.Rngs):
         fc1_init = sharded_init('mlp_fc1')
