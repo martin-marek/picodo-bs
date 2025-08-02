@@ -25,14 +25,13 @@ def loss_fn(model_state, model_graphdef, x, pad=False): # [B, T]
     return (losses * loss_mask).sum() / loss_mask.sum()
 
 
-@partial(jax.jit, static_argnames=('opt_graphdef', 'model_graphdef', 'grad_dtype'), donate_argnames=('opt_state'))
-def train_step(key, opt_state, opt_graphdef, model_graphdef, batch, grad_dtype):
+@partial(jax.jit, static_argnames=('opt_graphdef', 'model_graphdef'), donate_argnames=('opt_state'))
+def train_step(key, opt_state, opt_graphdef, model_graphdef, batch):
     key, key_opt = jax.random.split(key)
-    value_and_grad_fn = utils.value_and_grad_fp32 if (grad_dtype == 'float32') else jax.value_and_grad
 
     # compute grads from a single micro-batch
     if batch.ndim == 2:
-        loss, grads = value_and_grad_fn(loss_fn)(opt_state.model, model_graphdef, batch)
+        loss, grads = jax.value_and_grad(loss_fn)(opt_state.model, model_graphdef, batch)
     
     # compute grads from multiple micro-batches (using gradient accumulation)
     if batch.ndim == 3:
@@ -40,7 +39,7 @@ def train_step(key, opt_state, opt_graphdef, model_graphdef, batch, grad_dtype):
         grads = otu.tree_zeros_like(opt_state.model, dtype=jnp.float32)
         def step_fn(i , args):
             loss, grads = args
-            batch_loss, batch_grads = value_and_grad_fn(loss_fn)(opt_state.model, model_graphdef, batch[i])
+            batch_loss, batch_grads = jax.value_and_grad(loss_fn)(opt_state.model, model_graphdef, batch[i])
             loss = (i*loss + batch_loss) / (i+1)
             grads = jax.tree.map(lambda m, g: (i*m + g) / (i+1), grads, batch_grads)
             return loss, grads
@@ -101,7 +100,6 @@ def train_and_evaluate(c: DictConfig):
         tx = optimizer_lib.get_optimizer(c.opt, num_opt_steps, tokens_per_opt_step)
         optimizer = optimizer_lib.Optimizer(model, tx, stochastic_round=c.opt.stochastic_round)
         opt_graphdef, opt_state = nnx.split(optimizer)
-        assert not (c.model.param_dtype == 'float32' and c.opt.grad_dtype == 'bfloat16'), 'bf16 grads of fp32 weights not supported'
 
         # start wandb
         if jax.process_index() == 0:
@@ -123,7 +121,7 @@ def train_and_evaluate(c: DictConfig):
                     batch = ds_train[step*c.opt.grad_acc_steps:(step+1)*c.opt.grad_acc_steps] # [grad_acc_steps, micro_batch_size, T]
 
                 # training step (no accumulation)
-                key, opt_state, batch_loss = train_step(key, opt_state, opt_graphdef, model_graphdef, batch, c.opt.grad_dtype)
+                key, opt_state, batch_loss = train_step(key, opt_state, opt_graphdef, model_graphdef, batch)
 
                 # logging
                 train_loss_sum += batch_loss

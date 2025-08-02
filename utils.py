@@ -80,10 +80,3 @@ def to_bf16_stochastic(key, source):
     result_bf16 = result_fp32.astype(jnp.bfloat16)
 
     return result_bf16
-
-
-def value_and_grad_fp32(f):
-    def out_fn(params, *args):
-        params = jax.tree.map(lambda x: x.astype(jnp.float32), params)
-        return jax.value_and_grad(f)(params, *args)
-    return out_fn
